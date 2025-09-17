@@ -1,16 +1,17 @@
-# ChocoPi
+![Image of a friendly robot with a chocolatey treat for a head](https://github.com/user-attachments/assets/d197fcb5-cfa9-4faf-a3ce-9e9b94eb9ee0)
 
-![Image of a friendly robot with a chocolatey treat for a head](https://github.com/user-attachments/assets/ea0a8348-0699-4f51-98e1-105f1fd10e16)
+# ChocoPi
 
 Smart speaker app for language education through conversation.
 Built with a focus on simplicity, privacy, and configurability.
 
 
 ## Features
+
 - English, Spanish and Korean language support
 - Wake word detection on device
 - Voice conversation using OpenAI Realtime API
-- Built with portability in mind
+- Built for Raspberry Pi; some support for other platforms
 
 
 ## Quick Start
