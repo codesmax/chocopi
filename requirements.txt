@@ -1,0 +1,7 @@
+numpy>=1.26.4,<2.0
+openwakeword>=0.6.0
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+sounddevice>=0.4.6
+soundfile>=0.13.1
+websockets>=13.0

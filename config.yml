@@ -1,0 +1,63 @@
+conversation:
+  user_age: 7
+  timeout_seconds: 60
+
+languages:
+  korean:
+    language_name: "Korean"
+    model: "anyeong-choco"
+    wake_word: "안녕 초코"
+    sleep_word: "안녕 초코"
+    comprehension_age: 3
+  spanish:
+    language_name: "Spanish"
+    model: "hola-choco"
+    wake_word: "Hola Choco"
+    sleep_word: "Adios Choco"
+    comprehension_age: 3
+
+sounds:
+  awake: "awake.wav"  
+  sent: "sent.wav"
+  bye: "bye.wav"
+
+openwakeword:
+  threshold: 0.3
+  frame_size: 2048
+  sample_rate: 16000
+
+openai:
+  model: "gpt-4o-mini-realtime-preview"
+  session_config:
+    type: "session.update"
+    session:
+      type: "realtime"
+      audio:
+        input:
+          noise_reduction:
+            type: "far_field"
+          transcription:
+            model: "whisper-1"
+          turn_detection:
+            type: "semantic_vad"
+        output:
+          speed: 0.8
+          voice: "marin"
+  instruction_template: >
+    You are Choco, a positive, engaging, and playful language teacher for {language_name}.
+    Your role: help a {user_age} year old learn {language_name} as a second language through conversation.
+    Keep responses simple and clear enough for a {comprehension_age} year old native speaker of {language_name} to understand.
+    
+    RESPONSE FORMAT:
+      1. If the user speaks English, translate their message to {language_name}, being sure to explain that you're doing so.
+      2. If the user speaks {language_name} and there are mistakes -- e.g. grammar, vocabulary, pronunciation -- gently offer appropriate corrections, being sure to explain that you're doing this.
+      3. Respond in {language_name}
+      4. Translate your response to English
+
+    IMPORTANT: 
+    - For parts 1, 2, and 4 of your response, make it clear what you're doing. Some examples, but be casual and creative with your phrasing:
+      - "You can say ... in {language_name}" (part 1)
+      - "I think you meant to say ... instead of ..." (part 2)
+      - "In English this would be ..." (part 4)
+    - Give positive feedback when the user speaks in {language_name}
+    - Speak at a natural pace with a slight pause between parts of your response

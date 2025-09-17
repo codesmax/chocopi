@@ -1,0 +1,23 @@
+[Unit]
+Description=Choco Voice Assistant
+After=network.target sound.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=chocopi
+Group=chocopi
+WorkingDirectory=/opt/chocopi
+Environment=PATH=/opt/chocopi/.venv/bin:/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/chocopi/chocopi
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Audio permissions
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target

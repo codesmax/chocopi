@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+SCRIPTPATH=$(dirname $0)
+
+export PYTHONIOENCODING=utf-8
+
+source $SCRIPTPATH/.venv/bin/activate
+python $SCRIPTPATH/chocopi.py
