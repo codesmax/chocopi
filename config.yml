@@ -1,6 +1,6 @@
 conversation:
   user_age: 7
-  timeout_seconds: 60
+  timeout_seconds: 30
 
 languages:
   korean:

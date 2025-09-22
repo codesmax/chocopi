@@ -192,7 +192,7 @@ class ConversationSession:
                 transcript = data.get("transcript", "")
                 print(f"🗣️  You said: {transcript}")
                 
-                transcript_lower = transcript.strip().lower()
+                transcript_lower = transcript.strip().lower().replace(',', '')
                 if any(sleep_word in transcript_lower for sleep_word in self.sleep_words):
                     self.recording = False
                     return "goodbye"
