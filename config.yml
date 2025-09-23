@@ -17,7 +17,7 @@ conversation:
   timeout_seconds: 120
 
 audio:
-  input_gain: 2.0 # multiplier (1.0 = no change, 2.0 = double)
+  input_gain: 1.5 # multiplier (1.0 = no change, 2.0 = double)
 
 sounds:
   awake: "awake.wav"  
@@ -25,8 +25,8 @@ sounds:
   bye: "bye.wav"
 
 openwakeword:
-  threshold: 0.3
-  frame_size: 2048
+  threshold: 0.25
+  frame_len_ms: 160 # OWW recommends multiples of 80ms
   sample_rate: 16000
 
 openai:
@@ -40,9 +40,16 @@ openai:
           noise_reduction:
             type: "far_field"
           transcription:
-            model: "whisper-1"
+            model: "gpt-4o-mini-transcribe"
+            prompt: "Expect speech in English, Spanish, or Korean"
           turn_detection:
-            type: "semantic_vad"
+            type: "server_vad"
+            threshold: 0.4
+            prefix_padding_ms: 300
+            silence_duration_ms: 500
+            idle_timeout_ms: 5000
+            create_response: true
+            interrupt_response: true
         output:
           speed: 0.8
           voice: "marin"

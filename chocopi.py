@@ -80,7 +80,7 @@ class WakeWordDetector:
 
         try:
             with sd.InputStream(samplerate=oww_config['sample_rate'],
-                                blocksize=oww_config['frame_size'],
+                                blocksize=oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000,
                                 channels=1,
                                 dtype='int16',
                                 callback=audio_callback):
