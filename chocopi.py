@@ -34,7 +34,7 @@ def play_sound(filename):
         data, fs = sf.read(path)
         if platform.system() == 'Linux':
             sd.check_output_settings(channels=1)
-        sd.play(data, fs, blocking=True)
+        sd.play(data, fs)
     except Exception as e:
         print(f"❌ Sound playback error: {e}")
 
@@ -130,6 +130,7 @@ class ConversationSession:
         instruction_params = self.config['languages'][self.language]
         instruction_params['user_age'] = self.config['conversation']['user_age']
         instructions = self.config['openai']['instruction_template'].format(**instruction_params)
+        print(f'==> instructions: {instructions}')
         session_config = self.config['openai']['session_config'].copy()
         session_config['session']['instructions'] = instructions
         await self.websocket.send(json.dumps(session_config))
