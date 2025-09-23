@@ -80,7 +80,7 @@ class WakeWordDetector:
 
         try:
             with sd.InputStream(samplerate=oww_config['sample_rate'],
-                                blocksize=oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000,
+                                blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
                                 channels=1,
                                 dtype='int16',
                                 callback=audio_callback):
@@ -100,9 +100,9 @@ class WakeWordDetector:
 class ConversationSession:
     """Conversation session with OpenAI Realtime API"""
     
-    def __init__(self, config, language = 'korean'):
+    def __init__(self, config, learning_language = 'ko'):
         self.config = config
-        self.language = language
+        self.learning_language = learning_language
         self.sleep_words = [lang_config['sleep_word'].lower() for lang_config in self.config['languages'].values()]
         self.websocket = None
         self.response_chunks = []
@@ -121,18 +121,25 @@ class ConversationSession:
             uri = f"wss://api.openai.com/v1/realtime?model={self.config['openai']['model']}"
             self.websocket = await websockets.connect(uri, additional_headers=headers)
             await self._send_session_config()
+            # await self.websocket.send(json.dumps({"type": "response.create"}))
         except Exception as e:
             print(f"❌ Failed to connect to OpenAI API: {e}")
             raise
     
     async def _send_session_config(self):
         """Send session configuration with language-specific instructions"""
-        instruction_params = self.config['languages'][self.language]
-        instruction_params['user_age'] = self.config['conversation']['user_age']
-        instructions = self.config['openai']['instruction_template'].format(**instruction_params)
-        print(f'==> instructions: {instructions}')
+        instruction_params = {}
+        instruction_params['user_age'] = self.config['user_age']
+        instruction_params['native_language'] = self.config['languages'][self.config['native_language']]['language_name']
+        instruction_params['learning_language'] = self.config['languages'][self.learning_language]['language_name']
+        instructions = self.config['openai']['session_instructions'].format(**instruction_params)
+        transcription_prompt = self.config['openai']['transcription_prompt'].format(**instruction_params)
+        if bool(os.environ.get('DEBUG')):
+            print(f'⚙️  Session instructions: {instructions}')
+            print(f'⚙️  Transcription prompt: {transcription_prompt}')
         session_config = self.config['openai']['session_config'].copy()
         session_config['session']['instructions'] = instructions
+        session_config['session']['audio']['input']['transcription']['prompt'] = transcription_prompt
         await self.websocket.send(json.dumps(session_config))
     
     def _setup_audio_capture(self):
