@@ -40,7 +40,7 @@ def play_sound(filename):
 
 class WakeWordDetector:
     """Wake word detection using OpenWakeWord"""
-    
+
     def __init__(self, config):
         self.config = config
         self.framework = None
@@ -66,21 +66,21 @@ class WakeWordDetector:
     
     def listen_for_wake_word(self):
         """Listen for wake word and return detected wake word"""
-        
-        self._initialize_model() 
+
+        self._initialize_model()
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
         frames = queue.Queue()
-        
-        def audio_callback(indata, *_):
-            frames.put(indata.copy())
 
-        threshold = self.config['openwakeword']['threshold']
-        sample_rate = self.config['openwakeword']['sample_rate']
-        frame_size = self.config['openwakeword']['frame_size']
-        
+        def audio_callback(indata, *_):
+            input_gain = self.config['audio']['input_gain']
+            audio = indata * input_gain if input_gain != 1.0 else indata.copy()
+            frames.put(audio)
+
+        oww_config = self.config['openwakeword']
+
         try:
-            with sd.InputStream(samplerate=sample_rate,
-                                blocksize=frame_size,
+            with sd.InputStream(samplerate=oww_config['sample_rate'],
+                                blocksize=oww_config['frame_size'],
                                 channels=1,
                                 dtype='int16',
                                 callback=audio_callback):
@@ -88,9 +88,9 @@ class WakeWordDetector:
                     frame = frames.get()
                     frame_flat = frame[:, 0].flatten() # mono channel
                     prediction = self.model.predict(frame_flat)
-                    
+
                     for wake_word, score in prediction.items():
-                        if score > threshold:
+                        if score > oww_config['threshold']:
                             print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
                             return wake_word
         except Exception as e:
@@ -139,7 +139,7 @@ class ConversationSession:
         """Set up audio capture with callback"""
         def audio_callback(indata, *_):
             if self.recording:
-                audio_data = (indata * 32767).astype(np.int16)
+                audio_data = ((indata * self.config['audio']['input_gain']) * 32767).astype(np.int16)
                 self.audio_queue.put(audio_data)
         
         self.stream = sd.InputStream(
