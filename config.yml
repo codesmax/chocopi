@@ -25,7 +25,7 @@ conversation:
   timeout_seconds: 120
 
 audio:
-  input_gain: 1.25 # multiplier (1.0 = no change, 2.0 = double)
+  input_gain: 2.0 # multiplier (1.0 = no change, 2.0 = double)
 
 sounds:
   awake: "awake.wav"  
