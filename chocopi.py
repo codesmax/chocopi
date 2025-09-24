@@ -132,6 +132,7 @@ class ConversationSession:
         instruction_params['user_age'] = self.config['user_age']
         instruction_params['native_language'] = self.config['languages'][self.config['native_language']]['language_name']
         instruction_params['learning_language'] = self.config['languages'][self.learning_language]['language_name']
+        instruction_params['comprehension_age'] = self.config['languages'][self.learning_language]['comprehension_age']
         instructions = self.config['openai']['session_instructions'].format(**instruction_params)
         transcription_prompt = self.config['openai']['transcription_prompt'].format(**instruction_params)
         if bool(os.environ.get('DEBUG')):
