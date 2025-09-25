@@ -1,8 +1,31 @@
 #!/usr/bin/env bash
 
-SCRIPTPATH=$(dirname $0)
+# Set default audio volume on Linux systems
+if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v amixer > /dev/null 2>&1; then
+    DEFAULT_INPUT_VOLUME=85%
+    DEFAULT_OUTPUT_VOLUME=75%
+    DEFAULT_INPUT=$(amixer scontrols | grep -i -E '(capture|mic|input)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
+    DEFAULT_OUTPUT=$(amixer scontrols | grep -i -E '(master|speaker|headphone|pcm|playback)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
+
+    echo "🎛️  Setting audio volume..."
+    if [ -n "$DEFAULT_INPUT" ]; then
+        amixer sset "$DEFAULT_INPUT" $DEFAULT_INPUT_VOLUME unmute > /dev/null 2>&1 && \
+        echo "✅ Set input volume: $DEFAULT_INPUT → $DEFAULT_INPUT_VOLUME" || \
+        echo "⚠️  Failed to set input volume"
+    else
+        echo "⚠️  Unable to determine default input control"
+    fi
+
+    if [ -n "$DEFAULT_OUTPUT" ]; then
+        amixer sset "$DEFAULT_OUTPUT" $DEFAULT_OUTPUT_VOLUME unmute > /dev/null 2>&1 && \
+        echo "✅ Set output volume: $DEFAULT_OUTPUT → $DEFAULT_OUTPUT_VOLUME" || \
+        echo "⚠️  Failed to set output volume"
+    else
+        echo "⚠️  Unable to determine default output control"
+    fi
+fi
 
 export PYTHONIOENCODING=utf-8
-
+SCRIPTPATH=$(dirname $0)
 source $SCRIPTPATH/.venv/bin/activate
 python $SCRIPTPATH/chocopi.py
