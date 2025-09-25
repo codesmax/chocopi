@@ -4,6 +4,7 @@ import json
 import os
 import platform
 import queue
+import re
 import yaml
 import numpy as np
 import sounddevice as sd
@@ -12,6 +13,7 @@ import websockets
 import openwakeword
 from openwakeword.model import Model
 from dotenv import load_dotenv
+from rapidfuzz import fuzz
 
 # Load configuration
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -29,7 +31,7 @@ def play_sound(filename):
     if not os.path.exists(path):
         print(f"❌ Sound file not found: {path}")
         return
-    
+
     try:
         data, fs = sf.read(path)
         if platform.system() == 'Linux':
@@ -181,6 +183,23 @@ class ConversationSession:
                 sd.check_output_settings(channels=1)
             sd.play(audio_np, samplerate=24000)
     
+    def _is_sleep_word(self, text, threshold=80):
+        """Check if transcript contains a sleep word using fuzzy matching"""
+        if not text or not self.sleep_words:
+            return False
+
+        filtered_text = re.sub(r'[,.!?]', '', text.strip().lower())
+        for sleep_word in self.sleep_words:
+            score = fuzz.partial_ratio(sleep_word, filtered_text)
+
+            if score >= threshold:
+                if bool(os.environ.get('DEBUG')):
+                    print(f"✅ Sleep word fuzzy matched: '{sleep_word}' (score: {score})")
+
+                return True
+
+        return False
+
     async def _handle_message(self, data):
         """Handle incoming message from OpenAI"""
         message_type = data.get("type")
@@ -200,9 +219,10 @@ class ConversationSession:
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
                 print(f"🗣️  You said: {transcript}")
-                
-                transcript_lower = transcript.strip().lower().replace(',', '')
-                if any(sleep_word in transcript_lower for sleep_word in self.sleep_words):
+
+                # Check for sleep words using fuzzy matching
+                if self._is_sleep_word(transcript):
+                    print(f"💤 Sleep word detected: '{transcript}'")
                     self.recording = False
                     return "goodbye"
                     

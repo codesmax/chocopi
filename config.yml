@@ -15,14 +15,14 @@ languages:
     sleep_word: "안녕 초코"
     comprehension_age: 2
   es:
-    language_name: "Spanish"
+    language_name: "Mexican Spanish"
     model: "hola-choco"
     wake_word: "hola choco"
     sleep_word: "adiós choco"
     comprehension_age: 2
 
 conversation:
-  timeout_seconds: 120
+  timeout_seconds: 90
 
 audio:
   input_gain: 2.0 # multiplier (1.0 = no change, 2.0 = double)
@@ -53,7 +53,7 @@ openai:
             type: "server_vad"
             threshold: 0.4
             prefix_padding_ms: 300
-            silence_duration_ms: 750
+            silence_duration_ms: 1000
             idle_timeout_ms: 10000
             create_response: true
             interrupt_response: true
