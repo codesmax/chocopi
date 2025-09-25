@@ -26,7 +26,7 @@ with open(os.path.join(SCRIPT_PATH, 'config.yml'), 'r', encoding='utf-8') as fil
 load_dotenv(os.path.join(SCRIPT_PATH, '.env'))
 
 def play_sound(filename):
-    """Play a sound file using sounddevice"""
+    """Play notification sounds using sounddevice"""
     path = os.path.join(SOUNDS_PATH, filename)
     if not os.path.exists(path):
         print(f"❌ Sound file not found: {path}")
@@ -50,7 +50,6 @@ class WakeWordDetector:
     def _initialize_model(self):
         """Download required models once"""
         openwakeword.utils.download_models()
-
         self.framework = 'tflite' if platform.machine().lower() in ['aarch64', 'armv7l'] else 'onnx'
 
         model_paths = []
@@ -67,7 +66,6 @@ class WakeWordDetector:
     def listen_for_wake_word(self):
         """Listen for wake word and return detected wake word"""
 
-        self._initialize_model()
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
         frames = queue.Queue()
 
@@ -103,7 +101,6 @@ class ConversationSession:
     def __init__(self, config, learning_language = 'ko'):
         self.config = config
         self.learning_language = learning_language
-        self.sleep_words = [lang_config['sleep_word'].lower() for lang_config in self.config['languages'].values()]
         self.websocket = None
         self.response_chunks = []
         self.recording = True
@@ -181,16 +178,16 @@ class ConversationSession:
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
-        if not text or not self.sleep_words:
+        sleep_word = self.config['languages'][self.learning_language]['sleep_word'].lower()
+        if not text or not sleep_word:
             return False
 
         filtered_text = re.sub(r'[,.!?]', '', text.strip().lower())
-        for sleep_word in self.sleep_words:
-            score = fuzz.partial_ratio(sleep_word, filtered_text)
-            if score >= threshold:
-                if bool(os.environ.get('DEBUG')):
-                    print(f"✅ Sleep word fuzzy matched: '{sleep_word}' (score: {score})")
-                return True
+        score = fuzz.partial_ratio(sleep_word, filtered_text)
+        if score >= threshold:
+            if bool(os.environ.get('DEBUG')):
+                print(f"✅ Sleep word fuzzy matched: '{sleep_word}' (score: {score})")
+            return True
         return False
 
     async def _handle_message(self, data):
@@ -203,6 +200,7 @@ class ConversationSession:
 
         match message_type:
             case "input_audio_buffer.speech_started":
+                # User is speaking; interrupt any ongoing response
                 sd.stop()
                 self.response_chunks.clear()
 
