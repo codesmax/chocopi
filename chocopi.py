@@ -78,25 +78,24 @@ class WakeWordDetector:
 
     def __init__(self):
         self.framework = 'tflite' if platform.machine().lower() in ['aarch64', 'armv7l'] else 'onnx'
-        self.model = None
-        # Download required models once if needed
-        openwakeword.utils.download_models()
-        self._initialize_model()
-
-    def _initialize_model(self):
-        model_paths = []
+        self.model_paths = []
         for lang_config in CONFIG['languages'].values():
             model_name = lang_config['model']
             model_path = os.path.join(MODELS_PATH, f"{model_name}.{self.framework}")
-            model_paths.append(model_path)
+            self.model_paths.append(model_path)
+
+        print(f"🔍 Model paths: {self.model_paths}")
+        # Download required models once if needed
+        openwakeword.utils.download_models()
 
         self.model = Model(
-            wakeword_models=model_paths,
-            inference_framework=self.framework
+            inference_framework=self.framework,
+            wakeword_models=self.model_paths
         )
 
     def listen_for_wake_word(self):
         """Listen for wake word and return detected wake word"""
+
         self.model.reset()
 
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
@@ -121,6 +120,7 @@ class WakeWordDetector:
                 for wake_word, score in prediction.items():
                     if score > oww_config['threshold']:
                         print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
+                        print(f"=> Prediction items: {prediction.items()}")
                         AUDIO.stop()
                         return wake_word
         except Exception as e:
@@ -166,7 +166,7 @@ class ConversationSession:
         instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
         transcription_prompt = CONFIG['openai']['transcription_prompt'].format(**instruction_params)
         if bool(os.environ.get('DEBUG')):
-            print(f'⚙️  Session instructions: {instructions}')
+            # print(f'⚙️  Session instructions: {instructions}')
             print(f'⚙️  Transcription prompt: {transcription_prompt}')
         session_config = CONFIG['openai']['session_config'].copy()
         session_config['session']['instructions'] = instructions
@@ -241,9 +241,6 @@ class ConversationSession:
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
-                if "[PROMPT]" in transcript:
-                    return None
-
                 print(f"🗣️  You said: {transcript}")
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):

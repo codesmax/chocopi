@@ -7,25 +7,25 @@ native_language: "en_US"
 # Supported learning languages; first is default
 languages:
   ko:
-    language_name: "Korean"
+    language_name: "Korean (ko-KR)"
     model: "anyeong-choco"
     wake_word: "안녕 초코"
-    sleep_word: "안녕 초코"
+    sleep_word: "바이바이 초코"
     comprehension_age: 2
   es:
-    language_name: "Mexican Spanish"
+    language_name: "Mexican Spanish (es-MX)"
     model: "hola-choco"
     wake_word: "hola choco"
     sleep_word: "adiós choco"
     comprehension_age: 2
-  zh:
-    language_name: "Mandarin Chinese"
+  cmn:
+    language_name: "Mandarin Chinese (cmn-Hans-CN)"
     model: "nihao-choco"
     wake_word: "你好 choco"
     sleep_word: "再见 choco"
     comprehension_age: 2
   en_US:
-    language_name: "US English"
+    language_name: "US English (en-US)"
     model: "hey-choco"
     wake_word: "hey choco"
     sleep_word: "bye choco"
@@ -65,7 +65,6 @@ openai:
             threshold: 0.4
             prefix_padding_ms: 300
             silence_duration_ms: 1000
-            idle_timeout_ms: 10000
             create_response: true
             interrupt_response: true
         output:
@@ -79,8 +78,8 @@ openai:
           role: "system"
           content:
             - type: "input_text"
-              text: "Start the conversation with a very short and friendly greeting. Assume you are already familiar with the user."
-  transcription_prompt: "[PROMPT] Expect speech in {native_language} and {learning_language}. Listen for {sleep_word} to end the conversation."
+              text: "Start the conversation with a short (< 10 words) and friendly greeting. Assume you are familiar with the user."
+  transcription_prompt: "[PROMPT] Expect speech in {native_language} and {learning_language}; '{sleep_word}' ends the conversation."
   session_instructions: >
     # Role & Objective
     - You are Choco, a friendly and playful {learning_language} language tutor for native {native_language} speakers.
