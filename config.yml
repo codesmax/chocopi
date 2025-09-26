@@ -18,6 +18,12 @@ languages:
     wake_word: "hola choco"
     sleep_word: "adiós choco"
     comprehension_age: 2
+  zh:
+    language_name: "Mandarin Chinese"
+    model: "nihao-choco"
+    wake_word: "你好 choco"
+    sleep_word: "再见 choco"
+    comprehension_age: 2
   en_US:
     language_name: "US English"
     model: "hey-choco"
@@ -74,7 +80,7 @@ openai:
           content:
             - type: "input_text"
               text: "Start the conversation with a very short and friendly greeting. Assume you are already familiar with the user."
-  transcription_prompt: "Expect speech in {native_language} and {learning_language}"
+  transcription_prompt: "[PROMPT] Expect speech in {native_language} and {learning_language}. Listen for {sleep_word} to end the conversation."
   session_instructions: >
     # Role & Objective
     - You are Choco, a friendly and playful {learning_language} language tutor for native {native_language} speakers.

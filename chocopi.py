@@ -77,15 +77,13 @@ class WakeWordDetector:
     """Wake word detection using OpenWakeWord"""
 
     def __init__(self):
-        self.framework = None
+        self.framework = 'tflite' if platform.machine().lower() in ['aarch64', 'armv7l'] else 'onnx'
         self.model = None
+        # Download required models once if needed
+        openwakeword.utils.download_models()
         self._initialize_model()
 
     def _initialize_model(self):
-        """Download required models once"""
-        openwakeword.utils.download_models()
-        self.framework = 'tflite' if platform.machine().lower() in ['aarch64', 'armv7l'] else 'onnx'
-
         model_paths = []
         for lang_config in CONFIG['languages'].values():
             model_name = lang_config['model']
@@ -99,6 +97,7 @@ class WakeWordDetector:
 
     def listen_for_wake_word(self):
         """Listen for wake word and return detected wake word"""
+        self.model.reset()
 
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
         oww_config = CONFIG['openwakeword']
@@ -134,7 +133,7 @@ class ConversationSession:
     """Conversation session with OpenAI Realtime API"""
 
     def __init__(self, learning_language = 'ko'):
-        self.learning_language = learning_language
+        self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
         self.is_recording = True
@@ -161,8 +160,9 @@ class ConversationSession:
         instruction_params = {}
         instruction_params['user_age'] = CONFIG['user_age']
         instruction_params['native_language'] = CONFIG['languages'][CONFIG['native_language']]['language_name']
-        instruction_params['learning_language'] = CONFIG['languages'][self.learning_language]['language_name']
-        instruction_params['comprehension_age'] = CONFIG['languages'][self.learning_language]['comprehension_age']
+        instruction_params['learning_language'] = self.lang_config['language_name']
+        instruction_params['comprehension_age'] = self.lang_config['comprehension_age']
+        instruction_params['sleep_word'] = self.lang_config['sleep_word']
         instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
         transcription_prompt = CONFIG['openai']['transcription_prompt'].format(**instruction_params)
         if bool(os.environ.get('DEBUG')):
@@ -210,7 +210,7 @@ class ConversationSession:
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
-        sleep_word = CONFIG['languages'][self.learning_language]['sleep_word'].lower()
+        sleep_word = self.lang_config['sleep_word'].lower()
         if not text or not sleep_word:
             return False
 
@@ -241,8 +241,10 @@ class ConversationSession:
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
-                print(f"🗣️  You said: {transcript}")
+                if "[PROMPT]" in transcript:
+                    return None
 
+                print(f"🗣️  You said: {transcript}")
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
                     print(f"💤 Sleep word detected: '{transcript}'")
