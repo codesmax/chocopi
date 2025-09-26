@@ -24,25 +24,59 @@ with open(os.path.join(SCRIPT_PATH, 'config.yml'), 'r', encoding='utf-8') as fil
     CONFIG = yaml.safe_load(file)
 
 load_dotenv(os.path.join(SCRIPT_PATH, '.env'))
+class AudioManager:
+    """Audio manager for playback and recording"""
 
-def play_sound(filename):
-    """Play notification sounds using sounddevice"""
-    path = os.path.join(SOUNDS_PATH, filename)
-    if not os.path.exists(path):
-        print(f"❌ Sound file not found: {path}")
-        return
+    def __init__(self):
+        self.input_gain = CONFIG['audio']['input_gain']
+        self.input_stream = None
 
-    try:
-        data, fs = sf.read(path)
-        sd.play(data, fs)
-    except Exception as e:
-        print(f"❌ Sound playback error: {e}")
+    def record(self, sample_rate, dtype, blocksize, callback):
+        """Start recording (stops any existing recording first)"""
+        # Stop any existing recording first
+        if self.input_stream:
+            self.stop()
 
+        def gain_callback(indata, *args):
+            # Apply input gain consistently
+            processed = indata * self.input_gain if self.input_gain != 1.0 else indata.copy()
+            callback(processed, *args)
+
+        self.input_stream = sd.InputStream(
+            samplerate=sample_rate,
+            channels=1,
+            dtype=dtype,
+            blocksize=blocksize,
+            callback=gain_callback
+        )
+        self.input_stream.start()
+
+    def stop(self):
+        """Stop recording and clean up"""
+        if self.input_stream:
+            print("🔴 [AudioManager] Stopping audio input...")
+            self.input_stream.stop()
+            self.input_stream.close()
+            self.input_stream = None
+
+    def play(self, data, sample_rate=None):
+        """Playback of sound files or raw audio data"""
+        try:
+            if isinstance(data, str):
+                if not data.startswith('/'):
+                    data = os.path.join(SOUNDS_PATH, data)
+                audio_data, fs = sf.read(data)
+                sd.play(audio_data, fs)
+            else:
+                sd.play(data, sample_rate or 24000)
+        except Exception as e:
+            print(f"❌ Audio playback error: {e}")
+
+AUDIO = AudioManager()
 class WakeWordDetector:
     """Wake word detection using OpenWakeWord"""
 
-    def __init__(self, config):
-        self.config = config
+    def __init__(self):
         self.framework = None
         self.model = None
         self._initialize_model()
@@ -53,7 +87,7 @@ class WakeWordDetector:
         self.framework = 'tflite' if platform.machine().lower() in ['aarch64', 'armv7l'] else 'onnx'
 
         model_paths = []
-        for lang_config in self.config['languages'].values():
+        for lang_config in CONFIG['languages'].values():
             model_name = lang_config['model']
             model_path = os.path.join(MODELS_PATH, f"{model_name}.{self.framework}")
             model_paths.append(model_path)
@@ -67,45 +101,44 @@ class WakeWordDetector:
         """Listen for wake word and return detected wake word"""
 
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
+        oww_config = CONFIG['openwakeword']
         frames = queue.Queue()
 
-        def audio_callback(indata, *_):
-            input_gain = self.config['audio']['input_gain']
-            audio = indata * input_gain if input_gain != 1.0 else indata.copy()
-            frames.put(audio)
-
-        oww_config = self.config['openwakeword']
+        def audio_callback(processed_audio, *_):
+            frames.put(processed_audio)
 
         try:
-            with sd.InputStream(samplerate=oww_config['sample_rate'],
-                                blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
-                                channels=1,
-                                dtype='int16',
-                                callback=audio_callback):
-                while True:
-                    frame = frames.get()
-                    frame_flat = frame[:, 0].flatten() # mono channel
-                    prediction = self.model.predict(frame_flat)
+            AUDIO.record(
+                sample_rate=oww_config['sample_rate'],
+                dtype='int16',
+                blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
+                callback=audio_callback
+            )
+            while True:
+                frame = frames.get()
+                frame_flat = frame[:, 0].flatten() # mono channel
+                prediction = self.model.predict(frame_flat)
 
-                    for wake_word, score in prediction.items():
-                        if score > oww_config['threshold']:
-                            print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
-                            return wake_word
+                for wake_word, score in prediction.items():
+                    if score > oww_config['threshold']:
+                        print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
+                        AUDIO.stop()
+                        return wake_word
         except Exception as e:
             print(f"❌ Audio input error: {e}")
             raise
+        finally:
+            AUDIO.stop()
 
 class ConversationSession:
     """Conversation session with OpenAI Realtime API"""
 
-    def __init__(self, config, learning_language = 'ko'):
-        self.config = config
+    def __init__(self, learning_language = 'ko'):
         self.learning_language = learning_language
         self.websocket = None
         self.response_chunks = []
-        self.recording = True
+        self.is_recording = True
         self.audio_queue = queue.Queue()
-        self.stream = None
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -115,10 +148,10 @@ class ConversationSession:
             raise ValueError("OPENAI_API_KEY environment variable not set. Please add it to your .env file.")
         try:
             headers = {"Authorization": f"Bearer {openai_key}"}
-            uri = f"wss://api.openai.com/v1/realtime?model={self.config['openai']['model']}"
+            uri = f"wss://api.openai.com/v1/realtime?model={CONFIG['openai']['model']}"
             self.websocket = await websockets.connect(uri, additional_headers=headers)
             await self._send_session_config()
-            # await self.websocket.send(json.dumps({"type": "response.create"}))
+            await self.websocket.send(json.dumps(CONFIG['openai']['greeting_config']))
         except Exception as e:
             print(f"❌ Failed to connect to OpenAI API: {e}")
             raise
@@ -126,38 +159,38 @@ class ConversationSession:
     async def _send_session_config(self):
         """Send session configuration with language-specific instructions"""
         instruction_params = {}
-        instruction_params['user_age'] = self.config['user_age']
-        instruction_params['native_language'] = self.config['languages'][self.config['native_language']]['language_name']
-        instruction_params['learning_language'] = self.config['languages'][self.learning_language]['language_name']
-        instruction_params['comprehension_age'] = self.config['languages'][self.learning_language]['comprehension_age']
-        instructions = self.config['openai']['session_instructions'].format(**instruction_params)
-        transcription_prompt = self.config['openai']['transcription_prompt'].format(**instruction_params)
+        instruction_params['user_age'] = CONFIG['user_age']
+        instruction_params['native_language'] = CONFIG['languages'][CONFIG['native_language']]['language_name']
+        instruction_params['learning_language'] = CONFIG['languages'][self.learning_language]['language_name']
+        instruction_params['comprehension_age'] = CONFIG['languages'][self.learning_language]['comprehension_age']
+        instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
+        transcription_prompt = CONFIG['openai']['transcription_prompt'].format(**instruction_params)
         if bool(os.environ.get('DEBUG')):
             print(f'⚙️  Session instructions: {instructions}')
             print(f'⚙️  Transcription prompt: {transcription_prompt}')
-        session_config = self.config['openai']['session_config'].copy()
+        session_config = CONFIG['openai']['session_config'].copy()
         session_config['session']['instructions'] = instructions
         session_config['session']['audio']['input']['transcription']['prompt'] = transcription_prompt
         await self.websocket.send(json.dumps(session_config))
 
     def _setup_audio_capture(self):
         """Set up audio capture with callback"""
-        def audio_callback(indata, *_):
-            if self.recording:
-                audio_data = ((indata * self.config['audio']['input_gain']) * 32767).astype(np.int16)
+        def audio_callback(processed_audio, *_):
+            if self.is_recording:
+                # Convert processed float32 audio to int16 for OpenAI API
+                audio_data = (processed_audio * 32767).astype(np.int16)
                 self.audio_queue.put(audio_data)
 
-        self.stream = sd.InputStream(
-            samplerate=24000,
-            channels=1,
+        AUDIO.record(
+            sample_rate=24000,
             dtype='float32',
-            callback=audio_callback,
-            blocksize=1024
+            blocksize=1024,
+            callback=audio_callback
         )
 
     async def _process_audio_stream(self):
         """Process audio from queue and send"""
-        while self.recording:
+        while self.is_recording:
             if not self.audio_queue.empty():
                 try:
                     audio_data = self.audio_queue.get_nowait()
@@ -173,11 +206,11 @@ class ConversationSession:
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
-            sd.play(audio_np, samplerate=24000)
+            AUDIO.play(audio_np, 24000)
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
-        sleep_word = self.config['languages'][self.learning_language]['sleep_word'].lower()
+        sleep_word = CONFIG['languages'][self.learning_language]['sleep_word'].lower()
         if not text or not sleep_word:
             return False
 
@@ -189,7 +222,7 @@ class ConversationSession:
             return True
         return False
 
-    async def _handle_message(self, data):
+    async def _handle_message(self, data, blocking_response=False):
         """Handle incoming message from OpenAI"""
         message_type = data.get("type")
 
@@ -204,16 +237,16 @@ class ConversationSession:
                 self.response_chunks.clear()
 
             case "input_audio_buffer.speech_stopped":
-                play_sound(self.config['sounds']['sent'])
+                AUDIO.play(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
                 print(f"🗣️  You said: {transcript}")
 
                 # Check for sleep words using fuzzy matching
-                if self._is_sleep_word(transcript, self.config['session']['sleep_word_threshold']):
+                if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
                     print(f"💤 Sleep word detected: '{transcript}'")
-                    self.recording = False
+                    self.is_recording = False
                     return "goodbye"
 
             case "response.output_audio.delta":
@@ -228,74 +261,72 @@ class ConversationSession:
             case "response.done":
                 self._play_response_audio()
                 self.response_chunks.clear()
+                if blocking_response:
+                    sd.wait()
+                    return "done"
 
             case "error":
                 print(f"❌ OpenAI API Error: {data}")
-                self.recording = False
+                self.is_recording = False
                 return "error"
 
         return None
 
-    def _cleanup(self):
-        """Clean up audio resources"""
-        self.recording = False
-        if self.stream:
-            self.stream.stop()
-            self.stream.close()
-
     async def run(self):
-        """Run the complete conversation session"""
+        """Run conversation session"""
+        timeout = CONFIG['session']['timeout_seconds']
         audio_task = None
         try:
             await self.connect()
-            self._setup_audio_capture()
+            while True:
+                try:
+                    message = await asyncio.wait_for(self.websocket.recv(), timeout=5)
+                    data = json.loads(message)
+                    result = await self._handle_message(data, blocking_response=True)
+                    if result == "done":
+                        break
+                except asyncio.TimeoutError:
+                    print("⚠️  Timeout waiting for greeting response")
+                    break
 
-            play_sound(self.config['sounds']['awake'])
-            self.stream.start()
+            self._setup_audio_capture()
             print("👂 Choco is listening...")
 
-            # Start audio processing task
             audio_task = asyncio.create_task(self._process_audio_stream())
-            timeout = self.config['session']['timeout_seconds']
-
-            while self.recording:
+            while self.is_recording:
                 try:
                     message = await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
                     data = json.loads(message)
                     result = await self._handle_message(data)
-
                     if result in {"goodbye", "error"}:
                         break
-
                 except asyncio.TimeoutError:
                     print(f"⏲️  Session timeout reached ({timeout}s of inactivity)")
-                    self.recording = False
                     break
 
         except Exception as e:
             print(f"⚠️  Error during conversation: {e}")
         finally:
-            self.recording = False
+            self.is_recording = False
             if audio_task:
                 audio_task.cancel()
-            self._cleanup()
+            AUDIO.stop()
             if self.websocket:
                 await self.websocket.close()
 
 class ChocoPi:
-    def __init__(self, config):
-        self.config = config
-        self.wake_word_detector = WakeWordDetector(config)
-        self.wake_words = [lang_config['wake_word'].lower() for lang_config in self.config['languages'].values()]
+    def __init__(self):
+        self.wake_word_detector = WakeWordDetector()
+        self.wake_words = [lang_config['wake_word'].lower() for lang_config in CONFIG['languages'].values()]
 
     def _get_wake_word_language(self, wake_word):
         """Get language configuration based on detected wake word"""
-        for lang, config in self.config['languages'].items():
-            if wake_word == config['model'] and lang != self.config['native_language']:
+        for lang, config in CONFIG['languages'].items():
+            if wake_word == config['model'] and lang != CONFIG['native_language']:
                 print(f"⚙️  Session configured for: {config['language_name']}")
                 return lang
 
-        default_lang = list(self.config['languages'].keys())[0]
+        default_lang = list(CONFIG['languages'].keys())[0]
         print(f"⚠️  Unknown wake word: '{wake_word}'. Using default language: {default_lang}")
 
         return default_lang
@@ -308,17 +339,19 @@ class ChocoPi:
             while True:
                 if wake_word := self.wake_word_detector.listen_for_wake_word():
                     lang = self._get_wake_word_language(wake_word)
-                    session = ConversationSession(self.config, lang)
+                    AUDIO.play(CONFIG['sounds']['awake'])
+
+                    session = ConversationSession(lang)
                     asyncio.run(session.run())
 
-                    play_sound(self.config['sounds']['bye'])
+                    AUDIO.play(CONFIG['sounds']['bye'])
                     print("✅ Session ended.\n")
 
         except KeyboardInterrupt:
             print("👋 Shutting down...")
 
 def main():
-    app = ChocoPi(CONFIG)
+    app = ChocoPi()
     app.run()
 
 if __name__ == '__main__':

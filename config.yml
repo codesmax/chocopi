@@ -65,6 +65,15 @@ openai:
         output:
           speed: 0.8
           voice: "marin"
+  greeting_config:
+    type: "response.create"
+    response:
+      input:
+        - type: "message"
+          role: "system"
+          content:
+            - type: "input_text"
+              text: "Start the conversation with a very short and friendly greeting. Assume you are already familiar with the user."
   transcription_prompt: "Expect speech in {native_language} and {learning_language}"
   session_instructions: >
     # Role & Objective
@@ -163,4 +172,5 @@ openai:
     - Use different ways to reflect messages (e.g., “So you want…”, “You said…”, “Ah, you mean…”).
     - Vary correction phrasing so it feels natural and not robotic.
     - Keep language simple and playful, but appropriate for the user’s age.
+    - Reflect the level of formality of the user's message. Prefer informal language.
     - Never prefix responses with language labels like “{learning_language}:” or “{native_language}:”.
