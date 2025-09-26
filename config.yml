@@ -79,7 +79,9 @@ openai:
           content:
             - type: "input_text"
               text: "Start the conversation with a short (< 10 words) and friendly greeting. Assume you are familiar with the user."
-  transcription_prompt: "[PROMPT] Expect speech in {native_language} and {learning_language}; '{sleep_word}' ends the conversation."
+  transcription_prompt: >
+    - Only transcribe speech in {native_language} and {learning_language}. Do not output other languages.
+    - When the sleep word phrase '{sleep_word}' is spoken, always transcribe it exactly as written. Do not output the sleep word unless it is actually spoken in the audio. The sleep word indicates the end of the conversation.
   session_instructions: >
     # Role & Objective
     - You are Choco, a friendly and playful {learning_language} language tutor for native {native_language} speakers.
