@@ -45,6 +45,7 @@ sounds:
 
 openwakeword:
   threshold: 0.25
+  vad_threshold: 0.5
   sample_rate: 16000
   frame_len_ms: 160 # multiples of 80ms recommended
 
