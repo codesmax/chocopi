@@ -54,7 +54,6 @@ class AudioManager:
     def stop(self):
         """Stop recording and clean up"""
         if self.input_stream:
-            print("🔴 [AudioManager] Stopping audio input...")
             self.input_stream.stop()
             self.input_stream.close()
             self.input_stream = None
@@ -120,7 +119,6 @@ class WakeWordDetector:
                 for wake_word, score in prediction.items():
                     if score > oww_config['threshold']:
                         print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
-                        print(f"=> Prediction items: {prediction.items()}")
                         AUDIO.stop()
                         return wake_word
         except Exception as e:
@@ -166,7 +164,7 @@ class ConversationSession:
         instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
         transcription_prompt = CONFIG['openai']['transcription_prompt'].format(**instruction_params)
         if bool(os.environ.get('DEBUG')):
-            # print(f'⚙️  Session instructions: {instructions}')
+            print(f'⚙️  Session instructions: {instructions}')
             print(f'⚙️  Transcription prompt: {transcription_prompt}')
         session_config = CONFIG['openai']['session_config'].copy()
         session_config['session']['instructions'] = instructions
