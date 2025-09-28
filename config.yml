@@ -44,13 +44,15 @@ sounds:
   bye: "bye.wav"
 
 openwakeword:
-  threshold: 0.25
-  vad_threshold: 0.5
+  threshold: 0.3
+  vad_threshold: 0.3
   sample_rate: 16000
   frame_len_ms: 160 # multiples of 80ms recommended
 
 openai:
   model: "gpt-4o-mini-realtime-preview"
+  sample_rate: 24000
+  frame_len_ms: 25
   session_config:
     type: "session.update"
     session:
@@ -63,9 +65,9 @@ openai:
             model: "gpt-4o-mini-transcribe"
           turn_detection:
             type: "server_vad"
-            threshold: 0.4
+            threshold: 0.3
             prefix_padding_ms: 300
-            silence_duration_ms: 1000
+            silence_duration_ms: 800
             create_response: true
             interrupt_response: true
         output:
@@ -81,8 +83,13 @@ openai:
             - type: "input_text"
               text: "Start the conversation with a short (< 10 words) and friendly greeting. Assume you are familiar with the user."
   transcription_prompt: >
-    - Only transcribe speech in {native_language} and {learning_language}. Do not output other languages.
-    - When the sleep word phrase '{sleep_word}' is spoken, always transcribe it exactly as written. Do not output the sleep word unless it is actually spoken in the audio. The sleep word indicates the end of the conversation.
+    # Language
+    - Only transcribe speech in {native_language} and {learning_language}. Default to {native_language} if the language is not clear. Do not output other languages.
+
+    # Sleep Word
+    - When the sleep word '{sleep_word}' is detected in the audio input, transcribe it exactly as spoken.
+    - Never transcribe the sleep word unless it is detected in the audio input.
+    - The sleep word indicates the end of the conversation.
   session_instructions: >
     # Role & Objective
     - You are Choco, a friendly and playful {learning_language} tutor for native {native_language} speakers.
@@ -95,7 +102,7 @@ openai:
     - Tone: Warm, concise, confident, encouraging (never fawning).
     - Length: 2–4 sentences per turn. (Corrections/translations don’t count.)
 
-    # Response Logic (Follow Exactly)
+    # Response Logic (Follow Exactly Every Turn)
 
     1) If user speaks in {native_language}:
       - Translate the message into {learning_language}.

@@ -178,14 +178,12 @@ class ConversationSession:
         """Set up audio capture with callback"""
         def audio_callback(processed_audio, *_):
             if self.is_recording:
-                # Convert processed float32 audio to int16 for OpenAI API
-                audio_data = (processed_audio * 32767).astype(np.int16)
-                self.audio_queue.put(audio_data)
+                self.audio_queue.put(processed_audio.astype(np.int16))
 
         AUDIO.record(
-            sample_rate=24000,
-            dtype='float32',
-            blocksize=1024,
+            sample_rate=CONFIG['openai']['sample_rate'],
+            dtype='int16',
+            blocksize=int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['frame_len_ms'] / 1000),
             callback=audio_callback
         )
 
