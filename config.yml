@@ -32,7 +32,8 @@ languages:
     comprehension_age: 10
 
 session:
-  timeout_seconds: 90
+  greeting_timeout: 5
+  conversation_timeout: 90
   sleep_word_threshold: 85
 
 audio:
@@ -52,7 +53,7 @@ openwakeword:
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
-  frame_len_ms: 25
+  frame_len_ms: 50
   session_config:
     type: "session.update"
     session:

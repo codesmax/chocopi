@@ -11,6 +11,7 @@ import sounddevice as sd
 import soundfile as sf
 import websockets
 import openwakeword
+from enum import Enum
 from openwakeword.model import Model
 from dotenv import load_dotenv
 from rapidfuzz import fuzz
@@ -24,6 +25,7 @@ with open(os.path.join(SCRIPT_PATH, 'config.yml'), 'r', encoding='utf-8') as fil
     CONFIG = yaml.safe_load(file)
 
 load_dotenv(os.path.join(SCRIPT_PATH, '.env'))
+
 class AudioManager:
     """Audio manager for playback and recording"""
 
@@ -31,14 +33,14 @@ class AudioManager:
         self.input_gain = CONFIG['audio']['input_gain']
         self.input_stream = None
 
-    def record(self, sample_rate, dtype, blocksize, callback):
-        """Start recording (stops any existing recording first)"""
+    def start_recording(self, sample_rate, dtype, blocksize, callback):
+        """Start recording"""
         # Stop any existing recording first
         if self.input_stream:
-            self.stop()
+            self.stop_recording()
 
         def gain_callback(indata, *args):
-            # Apply input gain consistently
+            # Apply input gain
             processed = indata * self.input_gain if self.input_gain != 1.0 else indata.copy()
             callback(processed, *args)
 
@@ -51,25 +53,30 @@ class AudioManager:
         )
         self.input_stream.start()
 
-    def stop(self):
+    def stop_recording(self):
         """Stop recording and clean up"""
         if self.input_stream:
             self.input_stream.stop()
             self.input_stream.close()
             self.input_stream = None
 
-    def play(self, data, sample_rate=None):
+    def start_playing(self, data, sample_rate=24000, blocking=False):
         """Playback of sound files or raw audio data"""
         try:
             if isinstance(data, str):
                 if not data.startswith('/'):
                     data = os.path.join(SOUNDS_PATH, data)
                 audio_data, fs = sf.read(data)
-                sd.play(audio_data, fs)
+                sd.play(audio_data, fs, blocking=blocking)
             else:
-                sd.play(data, sample_rate or 24000)
+                sd.play(data, sample_rate, blocking=blocking)
         except Exception as e:
             print(f"❌ Audio playback error: {e}")
+
+    def stop_playing(self):
+        """Stops playback if active"""
+        if sd.get_stream().active:
+            sd.stop()
 
 AUDIO = AudioManager()
 class WakeWordDetector:
@@ -83,7 +90,6 @@ class WakeWordDetector:
             model_path = os.path.join(MODELS_PATH, f"{model_name}.{self.framework}")
             self.model_paths.append(model_path)
 
-        print(f"🔍 Model paths: {self.model_paths}")
         # Download required models once if needed
         openwakeword.utils.download_models()
 
@@ -96,6 +102,7 @@ class WakeWordDetector:
     def listen_for_wake_word(self):
         """Listen for wake word and return detected wake word"""
 
+        # Reset prediction and audio feature buffers
         self.model.reset()
 
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
@@ -106,7 +113,7 @@ class WakeWordDetector:
             frames.put(processed_audio)
 
         try:
-            AUDIO.record(
+            AUDIO.start_recording(
                 sample_rate=oww_config['sample_rate'],
                 dtype='int16',
                 blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
@@ -122,23 +129,32 @@ class WakeWordDetector:
                         print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
                         if bool(os.environ.get('DEBUG')):
                             print(prediction.items())
-                        AUDIO.stop()
+                        AUDIO.stop_recording()
                         return wake_word
         except Exception as e:
             print(f"❌ Audio input error: {e}")
             raise
         finally:
-            AUDIO.stop()
+            AUDIO.stop_recording()
 
 class ConversationSession:
     """Conversation session with OpenAI Realtime API"""
+
+    class Result(Enum):
+        """Result codes for message handling"""
+        GREETED = "greeted"
+        GOODBYE = "goodbye"
+        ERROR = "error"
 
     def __init__(self, learning_language = 'ko'):
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
-        self.is_recording = True
         self.audio_queue = queue.Queue()
+        self.blocking_response = True
+        self.is_active = True
+        self.is_greeting = True
+        self.is_terminating = False
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -150,7 +166,11 @@ class ConversationSession:
             headers = {"Authorization": f"Bearer {openai_key}"}
             uri = f"wss://api.openai.com/v1/realtime?model={CONFIG['openai']['model']}"
             self.websocket = await websockets.connect(uri, additional_headers=headers)
+
+            # Send session config
             await self._send_session_config()
+
+            # Create and send greeting response to initiate conversation
             await self.websocket.send(json.dumps(CONFIG['openai']['greeting_config']))
         except Exception as e:
             print(f"❌ Failed to connect to OpenAI API: {e}")
@@ -165,31 +185,35 @@ class ConversationSession:
         instruction_params['comprehension_age'] = self.lang_config['comprehension_age']
         instruction_params['sleep_word'] = self.lang_config['sleep_word']
         instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
+
         transcription_prompt = CONFIG['openai']['transcription_prompt'].format(**instruction_params)
-        if bool(os.environ.get('DEBUG')):
-            print(f'⚙️  Session instructions: {instructions}')
-            print(f'⚙️  Transcription prompt: {transcription_prompt}')
+
         session_config = CONFIG['openai']['session_config'].copy()
         session_config['session']['instructions'] = instructions
         session_config['session']['audio']['input']['transcription']['prompt'] = transcription_prompt
+
+        if bool(os.environ.get('DEBUG')):
+            print(f'⚙️  Session instructions: {instructions}')
+            print(f'⚙️  Transcription prompt: {transcription_prompt}')
+
         await self.websocket.send(json.dumps(session_config))
 
-    def _setup_audio_capture(self):
-        """Set up audio capture with callback"""
+    def _start_listening(self):
+        """Start audio capture with handler"""
         def audio_callback(processed_audio, *_):
-            if self.is_recording:
+            if self.is_active:
                 self.audio_queue.put(processed_audio.astype(np.int16))
 
-        AUDIO.record(
+        AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
             dtype='int16',
             blocksize=int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['frame_len_ms'] / 1000),
             callback=audio_callback
         )
 
-    async def _process_audio_stream(self):
+    async def _process_audio(self):
         """Process audio from queue and send"""
-        while self.is_recording:
+        while self.is_active:
             if not self.audio_queue.empty():
                 try:
                     audio_data = self.audio_queue.get_nowait()
@@ -200,12 +224,12 @@ class ConversationSession:
                     pass
             await asyncio.sleep(0.01)
 
-    def _play_response_audio(self):
+    def _play_response(self):
         """Play collected audio response"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
-            AUDIO.play(audio_np, 24000)
+            AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], blocking=self.blocking_response)
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
@@ -221,8 +245,9 @@ class ConversationSession:
             return True
         return False
 
-    async def _handle_message(self, data, blocking_response=False):
+    async def _handle_message(self, data):
         """Handle incoming message from OpenAI"""
+        Result = self.Result
         message_type = data.get("type")
 
         # Additional logging when DEBUG is enabled
@@ -232,11 +257,11 @@ class ConversationSession:
         match message_type:
             case "input_audio_buffer.speech_started":
                 # User is speaking; interrupt any ongoing response
-                sd.stop()
+                AUDIO.stop_playing()
                 self.response_chunks.clear()
 
             case "input_audio_buffer.speech_stopped":
-                AUDIO.play(CONFIG['sounds']['sent'])
+                AUDIO.start_playing(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
@@ -244,8 +269,11 @@ class ConversationSession:
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
                     print(f"💤 Sleep word detected: '{transcript}'")
-                    self.is_recording = False
-                    return "goodbye"
+
+                    # Prepare to terminate session
+                    self.blocking_response = True
+                    self.is_terminating = True
+                    AUDIO.stop_recording()
 
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
@@ -257,58 +285,61 @@ class ConversationSession:
                 print(f"🤖 Choco says: {transcript}")
 
             case "response.done":
-                self._play_response_audio()
+                self._play_response()
                 self.response_chunks.clear()
-                if blocking_response:
-                    sd.wait()
-                    return "done"
+                if self.is_greeting:
+                    return Result.GREETED
+                if self.is_terminating:
+                    return Result.GOODBYE
 
             case "error":
                 print(f"❌ OpenAI API Error: {data}")
-                self.is_recording = False
-                return "error"
+                self.is_active = False
+                AUDIO.stop_recording()
+                return Result.ERROR
 
         return None
 
     async def run(self):
         """Run conversation session"""
-        timeout = CONFIG['session']['timeout_seconds']
+        Result = self.Result
         audio_task = None
         try:
             await self.connect()
-            while True:
+            while self.is_active:
                 try:
-                    message = await asyncio.wait_for(self.websocket.recv(), timeout=5)
-                    data = json.loads(message)
-                    result = await self._handle_message(data, blocking_response=True)
-                    if result == "done":
-                        break
-                except asyncio.TimeoutError:
-                    print("⚠️  Timeout waiting for greeting response")
-                    break
-
-            self._setup_audio_capture()
-            print("👂 Choco is listening...")
-
-            audio_task = asyncio.create_task(self._process_audio_stream())
-            while self.is_recording:
-                try:
+                    # Short timeout for greeting, normal timeout for conversation
+                    timeout = CONFIG['session']['greeting_timeout'] if self.is_greeting else CONFIG['session']['conversation_timeout']
                     message = await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
                     data = json.loads(message)
                     result = await self._handle_message(data)
-                    if result in {"goodbye", "error"}:
+
+                    # Transition to conversation after greeting
+                    if self.is_greeting and result == Result.GREETED:
+                        self.is_greeting = False
+                        self.blocking_response = False
+                        self._start_listening()
+                        print("👂 Choco is listening...")
+                        audio_task = asyncio.create_task(self._process_audio())
+                        continue
+
+                    # Handle exit conditions
+                    if result in {Result.GOODBYE, Result.ERROR}:
+                        self.is_active = False
                         break
+
                 except asyncio.TimeoutError:
-                    print(f"⏲️  Session timeout reached ({timeout}s of inactivity)")
+                    print("⚠️  Timeout waiting for greeting response" if self.is_greeting
+                          else f"⏲️  Session timeout reached ({timeout}s of inactivity)")
+                    self.is_active = False
                     break
 
         except Exception as e:
             print(f"⚠️  Error during conversation: {e}")
         finally:
-            self.is_recording = False
             if audio_task:
                 audio_task.cancel()
-            AUDIO.stop()
+            AUDIO.stop_recording()
             if self.websocket:
                 await self.websocket.close()
 
@@ -337,12 +368,12 @@ class ChocoPi:
             while True:
                 if wake_word := self.wake_word_detector.listen_for_wake_word():
                     lang = self._get_wake_word_language(wake_word)
-                    AUDIO.play(CONFIG['sounds']['awake'])
+                    AUDIO.start_playing(CONFIG['sounds']['awake'])
 
                     session = ConversationSession(lang)
                     asyncio.run(session.run())
 
-                    AUDIO.play(CONFIG['sounds']['bye'])
+                    AUDIO.start_playing(CONFIG['sounds']['bye'])
                     print("✅ Session ended.\n")
 
         except KeyboardInterrupt:
