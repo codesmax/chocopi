@@ -20,24 +20,26 @@ if [[ -f /proc/cpuinfo ]] && grep -q "Raspberry Pi" /proc/cpuinfo; then
     fi
 fi
 
+# Install system dependencies
+echo "Installing system dependencies..."
+sudo apt update
+sudo apt install -y git python3 python3-pip python3-venv libportaudio2
+
 # Create chocopi user if it doesn't exist
 if ! id "chocopi" &>/dev/null; then
     echo "Creating chocopi user..."
     sudo useradd -m -s /bin/bash -G audio chocopi
 fi
 
-# Install system dependencies
-echo "Installing system dependencies..."
-sudo apt update
-sudo apt install -y git python3 python3-pip python3-venv libportaudio2
-
 # Create application directory
-echo "Setting up application directory..."
-sudo mkdir -p /opt/chocopi
-sudo chown chocopi:chocopi /opt/chocopi
+if [[ ! -d /opt/chocopi ]]; then
+    echo "Setting up application directory..."
+    sudo mkdir -p /opt/chocopi
+    sudo chown chocopi:chocopi /opt/chocopi
+fi
 
 # Clone repository if not already present
-if [[ ! -f /opt/chocopi/chocopi.py ]]; then
+if [[ ! -d /opt/chocopi/.git ]]; then
     echo "Cloning Choco repository..."
     sudo -u chocopi git clone https://github.com/codesmax/chocopi.git /opt/chocopi
 else
@@ -70,12 +72,12 @@ if [[ -n "$API_KEY" ]]; then
     echo "OPENAI_API_KEY=$API_KEY" | sudo tee /opt/chocopi/.env > /dev/null
     sudo chown chocopi:chocopi /opt/chocopi/.env
     sudo chmod 600 /opt/chocopi/.env
-    
+
     echo
     echo "Installation and configuration complete!"
     echo "Starting Choco service..."
     sudo systemctl start chocopi
-    
+
     echo
     echo "Service status:"
     sudo systemctl status chocopi --no-pager -l
