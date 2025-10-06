@@ -46,14 +46,13 @@ sounds:
 
 openwakeword:
   threshold: 0.3
-  vad_threshold: 0.3
   sample_rate: 16000
-  frame_len_ms: 160 # multiples of 80ms recommended
+  frame_len_ms: 80 # multiples of 80ms recommended
 
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
-  frame_len_ms: 50
+  frame_len_ms: 40
   session_config:
     type: "session.update"
     session:
@@ -88,7 +87,7 @@ openai:
     - Only transcribe speech in {native_language} and {learning_language}. Default to {native_language} if the language is not clear. Do not output other languages.
 
     # Sleep Word
-    - When the sleep word '{sleep_word}' is detected in the audio input, transcribe it exactly as spoken.
+    - When the sleep word '{sleep_word}' is detected in the audio input, transcribe it exactly as spoken. Respond with a short (< 10 words)goodbye response.
     - Never transcribe the sleep word unless it is detected in the audio input.
     - The sleep word indicates the end of the conversation.
   session_instructions: >

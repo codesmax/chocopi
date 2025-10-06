@@ -95,8 +95,7 @@ class WakeWordDetector:
 
         self.model = Model(
             inference_framework=self.framework,
-            wakeword_models=self.model_paths,
-            vad_threshold=CONFIG['openwakeword']['vad_threshold']
+            wakeword_models=self.model_paths
         )
 
     def listen_for_wake_word(self):
