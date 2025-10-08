@@ -44,9 +44,10 @@ display:
   transcript_height: 160
   animation_fps: 8 # speaking animation
   colors:
-    graphics_bg: "#222831"
-    transcript_bg: "#393E46"
-    text: "#EEEEEE"
+    graphics_bg: "#0A2647"
+    transcript_bg: "#144272"
+    choco_text: "#EEEEEE"
+    user_text: "#00ADB5"
   font_size: 18
 
 audio:
@@ -59,7 +60,6 @@ sounds:
 
 openwakeword:
   threshold: 0.3
-  vad_threshold: 0.1
   sample_rate: 16000
   frame_len_ms: 80 # multiples of 80ms recommended
 

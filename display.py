@@ -1,8 +1,12 @@
 import os
+import platform
 import threading
 import time
 import pygame
 from threading import Lock
+
+# On macOS, pygame events must be processed on main thread
+IS_MACOS = platform.system() == 'Darwin'
 
 
 class DisplayManager:
@@ -12,6 +16,7 @@ class DisplayManager:
         self.config = config['display']
         self.script_path = os.path.dirname(os.path.realpath(__file__))
         self.images_path = os.path.join(self.script_path, 'images')
+        self.fonts_path = os.path.join(self.script_path, 'fonts')
 
         # Thread safety
         self.lock = Lock()
@@ -32,6 +37,7 @@ class DisplayManager:
         self.idle_sprite = None
         self.speaking_frames = []
         self.font = None
+        self.gradient = None
 
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
@@ -43,10 +49,11 @@ class DisplayManager:
                 print("⚠️  No display available, disabling visual output")
                 return False
 
-            # Create fullscreen display
+            # Set up full-screen display on Linux/Pi
+            is_pi = platform.machine().lower() in ['aarch64', 'armv7l']
             self.screen = pygame.display.set_mode(
                 (self.config['width'], self.config['height']),
-                pygame.FULLSCREEN
+                pygame.FULLSCREEN if is_pi else pygame.RESIZABLE
             )
             pygame.display.set_caption("Choco")
             pygame.mouse.set_visible(False)
@@ -54,8 +61,11 @@ class DisplayManager:
             # Load sprites
             self._load_sprites()
 
-            # Load font
-            self.font = pygame.font.SysFont('dejavusans', self.config['font_size'])
+            # Load font - try bundled multilingual font first, then system fallbacks
+            self.font = self._load_font()
+
+            # Create gradient for pane transition
+            self._create_gradient()
 
             print(f"✅ Display initialized: {self.config['width']}x{self.config['height']}")
             return True
@@ -64,39 +74,73 @@ class DisplayManager:
             print(f"❌ Failed to initialize display: {e}")
             return False
 
+    def _load_font(self):
+        """Load font with multilingual support"""
+        font_size = self.config['font_size']
+
+        # Try bundled Noto Sans CJK font (supports CJK + Latin)
+        bundled_font = os.path.join(self.fonts_path, 'NotoSansCJK-VF.otf.ttc')
+        if os.path.exists(bundled_font):
+            print(f"📝 Using bundled font: {bundled_font}")
+            return pygame.font.Font(bundled_font, font_size)
+
+        # Fallback to system fonts with multilingual support
+        system_fonts = [
+            'notosans', 'notosanscjk', 'arial unicode ms',  # Multilingual
+            'arial', 'helvetica', 'freesans'  # Basic fallbacks
+        ]
+        print(f"📝 Using system font fallback")
+        return pygame.font.SysFont(system_fonts, font_size)
+
     def _load_sprites(self):
-        """Load idle and speaking sprites"""
-        # Load idle sprite
+        """Load idle and speaking sprites (images should be pre-sized to 400x480)"""
+        # Load idle sprite - use smoothscale for better quality
         idle_path = os.path.join(self.images_path, 'choco.png')
-        self.idle_sprite = pygame.image.load(idle_path)
-        # Scale to fit graphics area (640x480)
-        self.idle_sprite = pygame.transform.scale(self.idle_sprite, (640, 480))
+        idle_img = pygame.image.load(idle_path)
+        self.idle_sprite = pygame.transform.smoothscale(idle_img, (400, 480))
 
         # Load speaking spritesheet (horizontal layout: 4 frames)
         speaking_path = os.path.join(self.images_path, 'choco-speaking.png')
         spritesheet = pygame.image.load(speaking_path)
 
-        # Split into 4 frames
+        # Split into 4 frames - use smoothscale for better quality
         frame_width = spritesheet.get_width() // 4
         frame_height = spritesheet.get_height()
 
         for i in range(4):
             frame = spritesheet.subsurface((i * frame_width, 0, frame_width, frame_height))
-            # Scale to fit graphics area
-            frame = pygame.transform.scale(frame, (640, 480))
-            self.speaking_frames.append(frame)
+            scaled_frame = pygame.transform.smoothscale(frame, (400, 480))
+            self.speaking_frames.append(scaled_frame)
+
+    def _create_gradient(self):
+        """Create gradient surface for smooth transition between panes"""
+        gradient_width = 40  # Width of gradient in pixels
+        self.gradient = pygame.Surface((gradient_width, 480), pygame.SRCALPHA)
+
+        # Get pane colors
+        graphics_bg = pygame.Color(self.config['colors']['graphics_bg'])
+        transcript_bg = pygame.Color(self.config['colors']['transcript_bg'])
+
+        # Create vertical gradient from graphics_bg to transcript_bg
+        for x in range(gradient_width):
+            # Interpolate between colors
+            ratio = x / gradient_width
+            r = int(graphics_bg.r + (transcript_bg.r - graphics_bg.r) * ratio)
+            g = int(graphics_bg.g + (transcript_bg.g - graphics_bg.g) * ratio)
+            b = int(graphics_bg.b + (transcript_bg.b - graphics_bg.b) * ratio)
+
+            pygame.draw.line(self.gradient, (r, g, b), (x, 0), (x, 480))
 
     def _render_frame(self):
         """Render one frame"""
         # Parse colors
         graphics_bg = pygame.Color(self.config['colors']['graphics_bg'])
         transcript_bg = pygame.Color(self.config['colors']['transcript_bg'])
-        text_color = pygame.Color(self.config['colors']['text'])
 
-        # Clear graphics area
-        self.screen.fill(graphics_bg, (0, 0, 640, 480))
+        # Clear graphics area (left half: 400x480)
+        self.screen.fill(graphics_bg, (0, 0, 400, 480))
 
-        # Draw sprite
+        # Draw sprite in left half
         with self.lock:
             if self.is_speaking:
                 # Animate through ping-pong frames
@@ -105,40 +149,79 @@ class DisplayManager:
             else:
                 self.screen.blit(self.idle_sprite, (0, 0))
 
-        # Clear transcript area
-        self.screen.fill(transcript_bg, (0, 480, 800, 160))
+        # Clear transcript area (right half: 400x480)
+        self.screen.fill(transcript_bg, (400, 0, 400, 480))
+
+        # Draw gradient at transition (centered at x=400)
+        gradient_x = 400 - self.gradient.get_width() // 2
+        self.screen.blit(self.gradient, (gradient_x, 0))
 
         # Render transcripts
-        self._render_transcripts(text_color)
+        self._render_transcripts()
 
         pygame.display.flip()
 
-    def _render_transcripts(self, text_color):
-        """Render transcript text in bottom area"""
+    def _render_transcripts(self):
+        """Render transcript text in right half with scrolling"""
         with self.lock:
             if not self.transcripts:
                 return
 
-            # Start from bottom of transcript area and work up
-            y = 480 + self.config['transcript_height'] - 10  # 10px bottom margin
-            line_height = self.config['font_size'] + 4  # 4px line spacing
+            # Parse colors
+            choco_color = pygame.Color(self.config['colors']['choco_text'])
+            user_color = pygame.Color(self.config['colors']['user_text'])
+
+            # Start from bottom and work up
+            y = 480 - 10  # 10px bottom margin
+            line_height = self.config['font_size'] + 6  # 6px line spacing
+            margin = 10
 
             # Render transcripts from most recent backwards
             for speaker, text in reversed(self.transcripts):
-                # Format with speaker prefix
-                prefix = "🗣️  " if speaker == "user" else "🤖 "
-                line = f"{prefix}{text}"
+                # Choose color and prefix based on speaker
+                if speaker == "user":
+                    color = user_color
+                    prefix = "You: "
+                else:
+                    color = choco_color
+                    prefix = "Choco: "
 
-                # Render text
-                text_surface = self.font.render(line, True, text_color)
+                # Word wrap text to fit in 380px width (400 - 20px margins)
+                wrapped_lines = self._wrap_text(prefix + text, 380)
 
-                # Check if we're out of space
-                if y - text_surface.get_height() < 480:
-                    break
+                # Render lines from bottom up
+                for line in reversed(wrapped_lines):
+                    text_surface = self.font.render(line, True, color)
 
-                # Draw text
-                self.screen.blit(text_surface, (10, y - text_surface.get_height()))
-                y -= line_height
+                    # Check if we're out of space at top
+                    if y - text_surface.get_height() < 0:
+                        return
+
+                    # Draw text
+                    self.screen.blit(text_surface, (400 + margin, y - text_surface.get_height()))
+                    y -= line_height
+
+    def _wrap_text(self, text, max_width):
+        """Wrap text to fit within max_width pixels"""
+        words = text.split(' ')
+        lines = []
+        current_line = []
+
+        for word in words:
+            test_line = ' '.join(current_line + [word])
+            test_surface = self.font.render(test_line, True, (255, 255, 255))
+
+            if test_surface.get_width() <= max_width:
+                current_line.append(word)
+            else:
+                if current_line:
+                    lines.append(' '.join(current_line))
+                current_line = [word]
+
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        return lines
 
     def _update_animation(self):
         """Update animation frame based on FPS"""
@@ -155,46 +238,48 @@ class DisplayManager:
 
     def _run(self):
         """Main display loop (runs in thread)"""
-        if not self._init_pygame():
-            return
-
         self.running = True
         clock = pygame.time.Clock()
 
-        try:
-            while self.running:
-                # Handle pygame events (required for display to work)
+        while self.running:
+            # Handle pygame events (on Linux/Pi only - macOS requires main thread)
+            if not IS_MACOS:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT:
                         self.running = False
 
-                # Update animation
-                self._update_animation()
+            # Update animation
+            self._update_animation()
 
-                # Render frame
-                self._render_frame()
+            # Render frame
+            self._render_frame()
 
-                # Cap at 30 FPS (independent of animation FPS)
-                clock.tick(30)
-
-        finally:
-            pygame.quit()
+            # Cap at 30 FPS (independent of animation FPS)
+            clock.tick(30)
 
     def start(self):
-        """Start the display in a separate thread"""
+        """Start the display (must be called from main thread)"""
         if self.thread is not None:
             return
 
+        # Initialize pygame on main thread (required for macOS, good practice for all platforms)
+        if not self._init_pygame():
+            return
+
+        # Start render loop in separate thread
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
-        time.sleep(0.5)  # Give it time to initialize
+        time.sleep(0.1)  # Brief wait for thread to start
 
     def stop(self):
-        """Stop the display"""
+        """Stop the display (must be called from main thread)"""
         self.running = False
         if self.thread:
             self.thread.join(timeout=2.0)
             self.thread = None
+
+        # Quit pygame on main thread (required for macOS)
+        pygame.quit()
 
     def set_speaking(self, speaking):
         """Update speaking state (thread-safe)"""

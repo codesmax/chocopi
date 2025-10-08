@@ -5,6 +5,7 @@ import os
 import platform
 import queue
 import re
+import threading
 import yaml
 import numpy as np
 import sounddevice as sd
@@ -97,7 +98,6 @@ class WakeWordDetector:
         self.model = Model(
             inference_framework=self.framework,
             wakeword_models=self.model_paths,
-            vad_threshold=CONFIG['openwakeword']['vad_threshold']
         )
 
     def listen_for_wake_word(self):
@@ -227,11 +227,19 @@ class ConversationSession:
             await asyncio.sleep(0.01)
 
     def _play_response(self):
-        """Play collected audio response"""
+        """Play collected audio response and stop speaking animation when done"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
             AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], blocking=self.blocking_response)
+
+            # If non-blocking playback, spawn thread to monitor completion
+            if not self.blocking_response and self.display:
+                def wait_for_completion():
+                    sd.wait()  # Wait for playback to finish
+                    self.display.set_speaking(False)
+
+                threading.Thread(target=wait_for_completion, daemon=True).start()
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
@@ -261,6 +269,10 @@ class ConversationSession:
                 # User is speaking; interrupt any ongoing response
                 AUDIO.stop_playing()
                 self.response_chunks.clear()
+
+                # Stop speaking animation when interrupted
+                if self.display:
+                    self.display.set_speaking(False)
 
             case "input_audio_buffer.speech_stopped":
                 AUDIO.start_playing(CONFIG['sounds']['sent'])
@@ -296,15 +308,15 @@ class ConversationSession:
                     self.display.add_transcript("choco", transcript)
 
             case "response.done":
+                # Start speaking animation before playback
                 if self.display:
                     self.display.set_speaking(True)
 
                 self._play_response()
                 self.response_chunks.clear()
 
-                # Stop speaking animation after playback
-                if self.display:
-                    self.display.set_speaking(False)
+                # Speaking animation stops automatically when playback completes
+                # (handled by background thread in _play_response)
 
                 if self.is_greeting:
                     return Result.GREETED
