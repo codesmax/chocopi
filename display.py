@@ -191,11 +191,6 @@ class DisplayManager:
 
     def _run(self):
         """Main display loop (runs in thread)"""
-        print("🎬 Display thread starting...")
-        if not self._init_pygame():
-            print("❌ Display initialization failed")
-            return
-
         self.running = True
         clock = pygame.time.Clock()
         frame_count = 0
@@ -228,15 +223,22 @@ class DisplayManager:
             pygame.quit()
 
     def start(self):
-        """Start the display in a separate thread"""
+        """Start the display (must be called from main thread)"""
         if self.thread is not None:
             print("⚠️  Display thread already running")
             return
 
+        # Initialize pygame on main thread (required for video drivers)
+        print("🎬 Initializing display on main thread...")
+        if not self._init_pygame():
+            print("❌ Display initialization failed")
+            return
+
+        # Start render loop in separate thread
         print("🚀 Starting display thread...")
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
-        time.sleep(0.5)  # Give it time to initialize
+        time.sleep(0.1)  # Brief wait for thread to start
         print("✅ Display thread launched")
 
     def stop(self):
