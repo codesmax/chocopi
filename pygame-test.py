@@ -10,32 +10,60 @@ IS_PI = platform.machine() in ['aarch64', 'armv7l']
 
 if IS_PI:
     print("🍓 Detected Raspberry Pi - setting up framebuffer")
-    # Set XDG_RUNTIME_DIR
-    if 'XDG_RUNTIME_DIR' not in os.environ:
-        os.environ['XDG_RUNTIME_DIR'] = '/tmp'
 
-    # Disable SDL audio
-    os.environ['SDL_AUDIODRIVER'] = 'dummy'
+    # Try different video drivers
+    drivers_to_try = [
+        ('fbcon', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'fbcon'}),
+        ('kmsdrm', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'kmsdrm'}),
+        ('directfb', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'directfb'}),
+        ('auto', {'SDL_FBDEV': '/dev/fb1'}),
+    ]
 
-    # Point to framebuffer device
-    os.environ['SDL_FBDEV'] = '/dev/fb1'  # Change to /dev/fb0 if needed
+    screen = None
+    for driver_name, env_vars in drivers_to_try:
+        print(f"\n🔍 Trying driver: {driver_name}")
 
-    # Let SDL auto-detect video driver
-    if 'SDL_VIDEODRIVER' in os.environ:
-        del os.environ['SDL_VIDEODRIVER']
+        # Clean up previous attempt
+        pygame.quit()
+
+        # Set environment
+        os.environ['SDL_AUDIODRIVER'] = 'dummy'
+        if 'XDG_RUNTIME_DIR' not in os.environ:
+            os.environ['XDG_RUNTIME_DIR'] = '/tmp'
+
+        for key, value in env_vars.items():
+            os.environ[key] = value
+
+        try:
+            # Initialize
+            pygame.display.init()
+            pygame.font.init()
+
+            detected_driver = pygame.display.get_driver()
+            print(f"   Detected driver: {detected_driver}")
+
+            # Try to create display
+            screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
+            pygame.display.set_caption("Pygame Test")
+
+            print(f"✅ Success with {driver_name}!")
+            break
+
+        except Exception as e:
+            print(f"   ❌ Failed: {e}")
+            continue
+
+    if not screen:
+        print("\n💥 All drivers failed!")
+        print("Available SDL video drivers:")
+        os.system("SDL_VIDEODRIVER=help python3 -c 'import pygame; pygame.init()' 2>&1 | grep -i video")
+        exit(1)
+
 else:
     print("💻 Detected desktop - using windowed mode")
-
-# Initialize pygame
-pygame.init()
-
-# Create display
-if IS_PI:
-    screen = pygame.display.set_mode((800, 480), pygame.FULLSCREEN)
-else:
+    pygame.init()
     screen = pygame.display.set_mode((800, 480))
-
-pygame.display.set_caption("Pygame Test")
+    pygame.display.set_caption("Pygame Test")
 
 # Colors
 BLACK = (0, 0, 0)
