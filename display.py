@@ -39,6 +39,9 @@ class DisplayManager:
             # Disable SDL audio (we use sounddevice instead)
             os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
+            # Force SDL to use framebuffer console driver (not Wayland/X11)
+            os.environ['SDL_VIDEODRIVER'] = 'fbcon'
+
             # Point SDL to the correct framebuffer device (DSI display on fb1)
             os.environ['SDL_FBDEV'] = '/dev/fb1'
 
