@@ -89,6 +89,7 @@ class WakeWordDetector:
     def __init__(self):
         self.framework = 'tflite' if IS_PI else 'onnx'
         self.model_paths = []
+        self.is_active = True
         for lang_config in CONFIG['languages'].values():
             model_name = lang_config['model']
             model_path = os.path.join(MODELS_PATH, f"{model_name}.{self.framework}")
@@ -103,7 +104,7 @@ class WakeWordDetector:
         )
 
     def listen_for_wake_word(self):
-        """Listen for wake word and return detected wake word"""
+        """Listen for wake word and return detected wake word (or None if shutting down)"""
 
         # Reset prediction and audio feature buffers
         self.model.reset()
@@ -122,8 +123,12 @@ class WakeWordDetector:
                 blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
                 callback=audio_callback
             )
-            while True:
-                frame = frames.get()
+            while self.is_active:
+                try:
+                    frame = frames.get(timeout=0.1)
+                except queue.Empty:
+                    continue
+
                 frame_flat = frame[:, 0].flatten()  # mono channel
                 prediction = self.model.predict(frame_flat)
 
@@ -134,6 +139,7 @@ class WakeWordDetector:
                             print(prediction.items())
                         AUDIO.stop_recording()
                         return wake_word
+            return None
         except Exception as e:
             print(f"❌ Audio input error: {e}")
             raise
@@ -404,6 +410,7 @@ class ChocoPi:
         """Handle shutdown signals"""
         print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
         self.shutdown_requested = True
+        self.wake_word_detector.is_active = False
 
     def run(self):
         """Run the main application loop"""
