@@ -36,8 +36,18 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
         try:
-            # Set SDL to use KMS/DRM for framebuffer
-            os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
+            # Set XDG_RUNTIME_DIR if not set (needed for SDL on Linux)
+            if 'XDG_RUNTIME_DIR' not in os.environ:
+                import pwd
+                user_id = os.getuid()
+                os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{user_id}'
+
+            # Point SDL to the correct framebuffer device (DSI display is often fb1)
+            os.environ['SDL_FBDEV'] = '/dev/fb1'
+
+            # Let SDL auto-detect the video driver
+            if 'SDL_VIDEODRIVER' in os.environ:
+                del os.environ['SDL_VIDEODRIVER']
 
             pygame.init()
 
