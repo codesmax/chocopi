@@ -36,6 +36,10 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
         try:
+            # Set XDG_RUNTIME_DIR if not set (use /tmp since we don't need it for real)
+            if 'XDG_RUNTIME_DIR' not in os.environ:
+                os.environ['XDG_RUNTIME_DIR'] = '/tmp'
+
             # Disable SDL audio (we use sounddevice instead)
             os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
