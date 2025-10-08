@@ -40,10 +40,14 @@ class DisplayManager:
             os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
             # Force SDL to use framebuffer console driver (not Wayland/X11)
-            os.environ['SDL_VIDEODRIVER'] = 'fbcon'
+            os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
 
             # Point SDL to the correct framebuffer device (DSI display on fb1)
             os.environ['SDL_FBDEV'] = '/dev/fb1'
+
+            # Set XDG_RUNTIME_DIR fallback (SDL checks for it even when using fbcon)
+            if 'XDG_RUNTIME_DIR' not in os.environ:
+                os.environ['XDG_RUNTIME_DIR'] = '/tmp'
 
             pygame.init()
 
