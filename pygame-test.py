@@ -78,9 +78,26 @@ if IS_PI:
         print("\nCurrent TTY:")
         os.system("tty")
 
+        # Check user groups
+        print("\nUser groups:")
+        os.system("groups")
+
+        # Check framebuffer info
+        print("\nFramebuffer info:")
+        os.system("cat /sys/class/graphics/fb0/name 2>/dev/null || echo 'fb0 info not available'")
+        os.system("cat /sys/class/graphics/fb1/name 2>/dev/null || echo 'fb1 info not available'")
+
+        # Check loaded kernel modules
+        print("\nFramebuffer kernel modules:")
+        os.system("lsmod | grep -i fb")
+
         # Try to get SDL driver info
         print("\nTrying to list SDL drivers:")
         os.system("SDL_VIDEODRIVER=help python3 -c 'import pygame; pygame.init()' 2>&1")
+
+        # Check how SDL was compiled
+        print("\nSDL video drivers compiled in:")
+        os.system("python3 -c 'import pygame; pygame.init(); print([d for d in dir(pygame) if \"video\" in d.lower()])' 2>&1")
 
         exit(1)
 
