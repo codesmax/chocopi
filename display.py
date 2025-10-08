@@ -36,6 +36,9 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame (SDL env vars must be set before import)"""
         try:
+            # Reset pygame to pick up env vars set before import
+            pygame.quit()
+
             # Initialize only display and font modules
             pygame.display.init()
             pygame.font.init()
