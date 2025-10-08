@@ -42,6 +42,10 @@ class DisplayManager:
         if 'XDG_RUNTIME_DIR' not in os.environ:
             os.environ['XDG_RUNTIME_DIR'] = '/tmp'
 
+        # Check what we're working with
+        import threading
+        print(f"🔍 Initializing from thread: {threading.current_thread().name} (main={threading.current_thread() == threading.main_thread()})")
+
         # Try different video drivers in order of preference
         drivers_to_try = [
             ('kmsdrm', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'kmsdrm'}),
