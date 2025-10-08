@@ -1,11 +1,9 @@
 import os
 import platform
-import threading
 import time
 import pygame
-from threading import Lock
 
-# On macOS, pygame events must be processed on main thread
+# Platform detection for event handling
 IS_MACOS = platform.system() == 'Darwin'
 
 
@@ -18,11 +16,6 @@ class DisplayManager:
         self.images_path = os.path.join(self.script_path, 'images')
         self.fonts_path = os.path.join(self.script_path, 'fonts')
 
-        # Thread safety
-        self.lock = Lock()
-        self.running = False
-        self.thread = None
-
         # State
         self.is_speaking = False
         self.transcripts = []  # List of (speaker, text) tuples
@@ -32,12 +25,13 @@ class DisplayManager:
         self.ping_pong_frames = [0, 1, 2, 3, 2, 1]  # Ping-pong pattern
         self.last_frame_time = 0
 
-        # Pygame surfaces (initialized in thread)
+        # Pygame surfaces (initialized on start)
         self.screen = None
         self.idle_sprite = None
         self.speaking_frames = []
         self.font = None
         self.gradient = None
+        self.initialized = False
 
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
@@ -141,13 +135,12 @@ class DisplayManager:
         self.screen.fill(graphics_bg, (0, 0, 400, 480))
 
         # Draw sprite in left half
-        with self.lock:
-            if self.is_speaking:
-                # Animate through ping-pong frames
-                frame_idx = self.ping_pong_frames[self.animation_frame]
-                self.screen.blit(self.speaking_frames[frame_idx], (0, 0))
-            else:
-                self.screen.blit(self.idle_sprite, (0, 0))
+        if self.is_speaking:
+            # Animate through ping-pong frames
+            frame_idx = self.ping_pong_frames[self.animation_frame]
+            self.screen.blit(self.speaking_frames[frame_idx], (0, 0))
+        else:
+            self.screen.blit(self.idle_sprite, (0, 0))
 
         # Clear transcript area (right half: 400x480)
         self.screen.fill(transcript_bg, (400, 0, 400, 480))
@@ -163,43 +156,42 @@ class DisplayManager:
 
     def _render_transcripts(self):
         """Render transcript text in right half with scrolling"""
-        with self.lock:
-            if not self.transcripts:
-                return
+        if not self.transcripts:
+            return
 
-            # Parse colors
-            choco_color = pygame.Color(self.config['colors']['choco_text'])
-            user_color = pygame.Color(self.config['colors']['user_text'])
+        # Parse colors
+        choco_color = pygame.Color(self.config['colors']['choco_text'])
+        user_color = pygame.Color(self.config['colors']['user_text'])
 
-            # Start from bottom and work up
-            y = 480 - 10  # 10px bottom margin
-            line_height = self.config['font_size'] + 6  # 6px line spacing
-            margin = 10
+        # Start from bottom and work up
+        y = 480 - 10  # 10px bottom margin
+        line_height = self.config['font_size'] + 6  # 6px line spacing
+        margin = 10
 
-            # Render transcripts from most recent backwards
-            for speaker, text in reversed(self.transcripts):
-                # Choose color and prefix based on speaker
-                if speaker == "user":
-                    color = user_color
-                    prefix = "You: "
-                else:
-                    color = choco_color
-                    prefix = "Choco: "
+        # Render transcripts from most recent backwards
+        for speaker, text in reversed(self.transcripts):
+            # Choose color and prefix based on speaker
+            if speaker == "user":
+                color = user_color
+                prefix = "You: "
+            else:
+                color = choco_color
+                prefix = "Choco: "
 
-                # Word wrap text to fit in 380px width (400 - 20px margins)
-                wrapped_lines = self._wrap_text(prefix + text, 380)
+            # Word wrap text to fit in 380px width (400 - 20px margins)
+            wrapped_lines = self._wrap_text(prefix + text, 380)
 
-                # Render lines from bottom up
-                for line in reversed(wrapped_lines):
-                    text_surface = self.font.render(line, True, color)
+            # Render lines from bottom up
+            for line in reversed(wrapped_lines):
+                text_surface = self.font.render(line, True, color)
 
-                    # Check if we're out of space at top
-                    if y - text_surface.get_height() < 0:
-                        return
+                # Check if we're out of space at top
+                if y - text_surface.get_height() < 0:
+                    return
 
-                    # Draw text
-                    self.screen.blit(text_surface, (400 + margin, y - text_surface.get_height()))
-                    y -= line_height
+                # Draw text
+                self.screen.blit(text_surface, (400 + margin, y - text_surface.get_height()))
+                y -= line_height
 
     def _wrap_text(self, text, max_width):
         """Wrap text to fit within max_width pixels"""
@@ -229,72 +221,53 @@ class DisplayManager:
         frame_duration = 1.0 / self.config['animation_fps']
 
         if current_time - self.last_frame_time >= frame_duration:
-            with self.lock:
-                if self.is_speaking:
-                    # Advance ping-pong frame
-                    self.animation_frame = (self.animation_frame + 1) % len(self.ping_pong_frames)
-
+            if self.is_speaking:
+                # Advance ping-pong frame
+                self.animation_frame = (self.animation_frame + 1) % len(self.ping_pong_frames)
             self.last_frame_time = current_time
 
-    def _run(self):
-        """Main display loop (runs in thread)"""
-        self.running = True
-        clock = pygame.time.Clock()
+    def initialize(self):
+        """Initialize pygame and display (call from main thread)"""
+        if self.initialized:
+            return True
 
-        while self.running:
-            # Handle pygame events (on Linux/Pi only - macOS requires main thread)
-            if not IS_MACOS:
-                for event in pygame.event.get():
-                    if event.type == pygame.QUIT:
-                        self.running = False
+        if self._init_pygame():
+            self.initialized = True
+            return True
+        return False
 
-            # Update animation
-            self._update_animation()
-
-            # Render frame
-            self._render_frame()
-
-            # Cap at 30 FPS (independent of animation FPS)
-            clock.tick(30)
-
-    def start(self):
-        """Start the display (must be called from main thread)"""
-        if self.thread is not None:
+    def render_frame(self):
+        """Render one frame (call this from event loop)"""
+        if not self.initialized:
             return
 
-        # Initialize pygame on main thread (required for macOS, good practice for all platforms)
-        if not self._init_pygame():
-            return
+        # Update animation
+        self._update_animation()
 
-        # Start render loop in separate thread
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-        time.sleep(0.1)  # Brief wait for thread to start
+        # Render frame
+        self._render_frame()
 
-    def stop(self):
-        """Stop the display (must be called from main thread)"""
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=2.0)
-            self.thread = None
-
-        # Quit pygame on main thread (required for macOS)
-        pygame.quit()
+    def cleanup(self):
+        """Clean up pygame resources"""
+        if self.initialized:
+            pygame.quit()
+            self.initialized = False
 
     def set_speaking(self, speaking):
-        """Update speaking state (thread-safe)"""
-        with self.lock:
-            self.is_speaking = speaking
-            if speaking:
-                self.animation_frame = 0  # Reset animation
+        """Update speaking state"""
+        was_speaking = self.is_speaking
+        self.is_speaking = speaking
+        if speaking and not was_speaking:
+            self.animation_frame = 0  # Reset animation
+            self.last_frame_time = time.time()  # Reset timer
+            print("🎬 Animation started")
 
     def add_transcript(self, speaker, text):
-        """Add a transcript line (thread-safe)"""
-        with self.lock:
-            self.transcripts.append((speaker, text))
-            # Keep only last 10 transcripts
-            if len(self.transcripts) > 10:
-                self.transcripts.pop(0)
+        """Add a transcript line"""
+        self.transcripts.append((speaker, text))
+        # Keep only last 10 transcripts
+        if len(self.transcripts) > 10:
+            self.transcripts.pop(0)
 
 
 def create_display_manager(config):
