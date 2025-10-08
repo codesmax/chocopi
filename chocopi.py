@@ -296,7 +296,7 @@ class ConversationSession:
                     self.display.add_transcript("choco", transcript)
 
             case "response.done":
-                if self.display and len(self.response_chunks) > 0:
+                if self.display:
                     self.display.set_speaking(True)
 
                 self._play_response()
