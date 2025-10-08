@@ -35,47 +35,60 @@ class DisplayManager:
 
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
-        try:
-            # Disable SDL audio (we use sounddevice instead)
-            os.environ['SDL_AUDIODRIVER'] = 'dummy'
+        # Disable SDL audio (we use sounddevice instead)
+        os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
-            # Force SDL to use framebuffer console driver (not Wayland/X11)
-            os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
+        # Set XDG_RUNTIME_DIR fallback (SDL checks for it)
+        if 'XDG_RUNTIME_DIR' not in os.environ:
+            os.environ['XDG_RUNTIME_DIR'] = '/tmp'
 
-            # Point SDL to the correct framebuffer device (DSI display on fb1)
-            os.environ['SDL_FBDEV'] = '/dev/fb1'
+        # Try different video drivers in order of preference
+        drivers_to_try = [
+            ('kmsdrm', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'kmsdrm'}),
+            ('fbcon', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'fbcon'}),
+            ('directfb', {'SDL_FBDEV': '/dev/fb1', 'SDL_VIDEODRIVER': 'directfb'}),
+            ('auto', {'SDL_FBDEV': '/dev/fb1'}),
+        ]
 
-            # Set XDG_RUNTIME_DIR fallback (SDL checks for it even when using fbcon)
-            if 'XDG_RUNTIME_DIR' not in os.environ:
-                os.environ['XDG_RUNTIME_DIR'] = '/tmp'
+        for driver_name, env_vars in drivers_to_try:
+            try:
+                # Clean up previous attempt
+                pygame.quit()
 
-            pygame.init()
+                # Set environment
+                for key, value in env_vars.items():
+                    os.environ[key] = value
 
-            # Check if display is available
-            if not pygame.display.get_driver():
-                print("⚠️  No display available, disabling visual output")
-                return False
+                # Initialize only display and font modules
+                pygame.display.init()
+                pygame.font.init()
 
-            # Create fullscreen display
-            self.screen = pygame.display.set_mode(
-                (self.config['width'], self.config['height']),
-                pygame.FULLSCREEN
-            )
-            pygame.display.set_caption("Choco")
-            pygame.mouse.set_visible(False)
+                detected_driver = pygame.display.get_driver()
+                print(f"🔍 Trying {driver_name}, detected: {detected_driver}")
 
-            # Load sprites
-            self._load_sprites()
+                # Create fullscreen display
+                self.screen = pygame.display.set_mode(
+                    (self.config['width'], self.config['height']),
+                    pygame.FULLSCREEN
+                )
+                pygame.display.set_caption("Choco")
+                pygame.mouse.set_visible(False)
 
-            # Load font
-            self.font = pygame.font.SysFont('dejavusans', self.config['font_size'])
+                # Load sprites
+                self._load_sprites()
 
-            print(f"✅ Display initialized: {self.config['width']}x{self.config['height']}")
-            return True
+                # Load font
+                self.font = pygame.font.SysFont('dejavusans', self.config['font_size'])
 
-        except Exception as e:
-            print(f"❌ Failed to initialize display: {e}")
-            return False
+                print(f"✅ Display initialized: {self.config['width']}x{self.config['height']} using {detected_driver}")
+                return True
+
+            except Exception as e:
+                print(f"❌ {driver_name} failed: {e}")
+                continue
+
+        print("❌ All video drivers failed")
+        return False
 
     def _load_sprites(self):
         """Load idle and speaking sprites"""
