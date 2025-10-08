@@ -3,10 +3,22 @@
 
 import os
 import platform
-import pygame
+import sys
 
 # Platform detection
 IS_PI = platform.machine() in ['aarch64', 'armv7l']
+
+print(f"Python: {sys.version}")
+print(f"Platform: {platform.machine()}")
+
+# Check pygame before importing
+try:
+    import pygame
+    print(f"Pygame version: {pygame.version.ver}")
+    print(f"SDL version: {pygame.version.SDL}")
+except Exception as e:
+    print(f"Error importing pygame: {e}")
+    exit(1)
 
 if IS_PI:
     print("🍓 Detected Raspberry Pi - setting up framebuffer")
@@ -55,8 +67,21 @@ if IS_PI:
 
     if not screen:
         print("\n💥 All drivers failed!")
-        print("Available SDL video drivers:")
-        os.system("SDL_VIDEODRIVER=help python3 -c 'import pygame; pygame.init()' 2>&1 | grep -i video")
+        print("\nDiagnostics:")
+        print("=" * 50)
+
+        # Check framebuffer devices
+        print("\nFramebuffer devices:")
+        os.system("ls -l /dev/fb*")
+
+        # Check which TTY we're on
+        print("\nCurrent TTY:")
+        os.system("tty")
+
+        # Try to get SDL driver info
+        print("\nTrying to list SDL drivers:")
+        os.system("SDL_VIDEODRIVER=help python3 -c 'import pygame; pygame.init()' 2>&1")
+
         exit(1)
 
 else:
