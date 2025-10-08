@@ -29,6 +29,7 @@ with open(os.path.join(SCRIPT_PATH, 'config.yml'), 'r', encoding='utf-8') as fil
 
 load_dotenv(os.path.join(SCRIPT_PATH, '.env'))
 
+IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
 class AudioManager:
     """Audio manager for playback and recording"""
 
@@ -38,7 +39,6 @@ class AudioManager:
 
     def start_recording(self, sample_rate, dtype, blocksize, callback):
         """Start recording"""
-        # Stop any existing recording first
         if self.input_stream:
             self.stop_recording()
 
@@ -86,7 +86,7 @@ class WakeWordDetector:
     """Wake word detection using OpenWakeWord"""
 
     def __init__(self):
-        self.framework = 'tflite' if platform.machine().lower() in ['aarch64', 'armv7l'] else 'onnx'
+        self.framework = 'tflite' if IS_PI else 'onnx'
         self.model_paths = []
         for lang_config in CONFIG['languages'].values():
             model_name = lang_config['model']
@@ -450,6 +450,11 @@ class ChocoPi:
                 # Check for wake word (non-blocking)
                 if wake_word := await self.wake_word_detector.check_wake_word():
                     lang = self._get_wake_word_language(wake_word)
+
+                    # Wake up display
+                    if self.display:
+                        self.display.set_active(True)
+
                     AUDIO.start_playing(CONFIG['sounds']['awake'])
 
                     # Run conversation session as background task
@@ -461,6 +466,10 @@ class ChocoPi:
                     AUDIO.start_playing(CONFIG['sounds']['bye'])
                     print("✅ Session ended.\n")
                     session_task = None
+
+                    # Put display to sleep
+                    if self.display:
+                        self.display.set_active(False)
 
                     # Resume wake word listening
                     self.wake_word_detector.start_listening()

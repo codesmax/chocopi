@@ -3,10 +3,6 @@ import platform
 import time
 import pygame
 
-# Platform detection for event handling
-IS_MACOS = platform.system() == 'Darwin'
-
-
 class DisplayManager:
     """Manages visual display with sprite animations and transcript"""
 
@@ -17,6 +13,7 @@ class DisplayManager:
         self.fonts_path = os.path.join(self.script_path, 'fonts')
 
         # State
+        self.is_active = False  # False = sleeping (dimmed), True = awake
         self.is_speaking = False
         self.transcripts = []  # List of (speaker, text) tuples
 
@@ -127,6 +124,14 @@ class DisplayManager:
 
     def _render_frame(self):
         """Render one frame"""
+        if not self.is_active:
+            # Sleeping state - show dimmed blank screen
+            dim_color = (20, 20, 20)  # Very dark gray
+            self.screen.fill(dim_color)
+            pygame.display.flip()
+            return
+
+        # Awake state - show normal UI
         # Parse colors
         graphics_bg = pygame.Color(self.config['colors']['graphics_bg'])
         transcript_bg = pygame.Color(self.config['colors']['transcript_bg'])
@@ -251,6 +256,14 @@ class DisplayManager:
         if self.initialized:
             pygame.quit()
             self.initialized = False
+
+    def set_active(self, active):
+        """Set display active state (True = awake, False = sleeping)"""
+        self.is_active = active
+        if not active:
+            # Clear transcripts when going to sleep
+            self.transcripts = []
+            self.is_speaking = False
 
     def set_speaking(self, speaking):
         """Update speaking state"""
