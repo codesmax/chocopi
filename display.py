@@ -36,11 +36,8 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
         try:
-            # Set XDG_RUNTIME_DIR if not set (needed for SDL on Linux)
-            if 'XDG_RUNTIME_DIR' not in os.environ:
-                import pwd
-                user_id = os.getuid()
-                os.environ['XDG_RUNTIME_DIR'] = f'/run/user/{user_id}'
+            # Disable SDL audio (we use sounddevice instead)
+            os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
             # Point SDL to the correct framebuffer device (DSI display is often fb1)
             os.environ['SDL_FBDEV'] = '/dev/fb1'
