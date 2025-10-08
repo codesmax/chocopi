@@ -287,10 +287,6 @@ class ConversationSession:
                     audio_bytes = base64.b64decode(audio_base64)
                     self.response_chunks.append(audio_bytes)
 
-                    # Set speaking on first audio chunk
-                    if self.display and len(self.response_chunks) == 1:
-                        self.display.set_speaking(True)
-
             case "response.output_audio_transcript.done":
                 transcript = data.get("transcript", "")
                 print(f"🤖 Choco says: {transcript}")
@@ -300,6 +296,9 @@ class ConversationSession:
                     self.display.add_transcript("choco", transcript)
 
             case "response.done":
+                if self.display and len(self.response_chunks) > 0:
+                    self.display.set_speaking(True)
+
                 self._play_response()
                 self.response_chunks.clear()
 

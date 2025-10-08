@@ -36,9 +36,6 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
         try:
-            # Set SDL to use KMS/DRM for framebuffer
-            os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
-
             pygame.init()
 
             # Check if display is available
