@@ -1,20 +1,8 @@
-import os
-import platform
-
-# Configure SDL environment BEFORE importing any libraries that use SDL
-# (pygame, sounddevice, etc.)
-os.environ['SDL_AUDIODRIVER'] = 'dummy'
-if 'XDG_RUNTIME_DIR' not in os.environ:
-    os.environ['XDG_RUNTIME_DIR'] = '/tmp'
-
-# On Raspberry Pi, configure video driver for framebuffer
-if platform.machine().lower() in ['aarch64', 'armv7l']:
-    os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
-    os.environ['SDL_FBDEV'] = '/dev/fb1'
-
 import asyncio
 import base64
 import json
+import os
+import platform
 import queue
 import re
 import yaml

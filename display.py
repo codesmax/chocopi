@@ -34,17 +34,17 @@ class DisplayManager:
         self.font = None
 
     def _init_pygame(self):
-        """Initialize pygame (SDL env vars must be set before import)"""
+        """Initialize pygame in the display thread"""
         try:
-            # Reset pygame to pick up env vars set before import
-            pygame.quit()
+            # Set SDL to use KMS/DRM for framebuffer
+            os.environ['SDL_VIDEODRIVER'] = 'kmsdrm'
 
-            # Initialize only display and font modules
-            pygame.display.init()
-            pygame.font.init()
+            pygame.init()
 
-            detected_driver = pygame.display.get_driver()
-            print(f"🔍 SDL video driver: {detected_driver}")
+            # Check if display is available
+            if not pygame.display.get_driver():
+                print("⚠️  No display available, disabling visual output")
+                return False
 
             # Create fullscreen display
             self.screen = pygame.display.set_mode(
@@ -64,40 +64,30 @@ class DisplayManager:
             return True
 
         except Exception as e:
-            print(f"❌ Display initialization failed: {e}")
+            print(f"❌ Failed to initialize display: {e}")
             return False
 
     def _load_sprites(self):
         """Load idle and speaking sprites"""
-        try:
-            # Load idle sprite
-            idle_path = os.path.join(self.images_path, 'choco.png')
-            print(f"📁 Loading idle sprite: {idle_path}")
-            self.idle_sprite = pygame.image.load(idle_path)
-            # Scale to fit graphics area (640x480)
-            self.idle_sprite = pygame.transform.scale(self.idle_sprite, (640, 480))
-            print(f"✅ Idle sprite loaded: {self.idle_sprite.get_size()}")
+        # Load idle sprite
+        idle_path = os.path.join(self.images_path, 'choco.png')
+        self.idle_sprite = pygame.image.load(idle_path)
+        # Scale to fit graphics area (640x480)
+        self.idle_sprite = pygame.transform.scale(self.idle_sprite, (640, 480))
 
-            # Load speaking spritesheet (horizontal layout: 4 frames)
-            speaking_path = os.path.join(self.images_path, 'choco-speaking.png')
-            print(f"📁 Loading speaking sprite: {speaking_path}")
-            spritesheet = pygame.image.load(speaking_path)
+        # Load speaking spritesheet (horizontal layout: 4 frames)
+        speaking_path = os.path.join(self.images_path, 'choco-speaking.png')
+        spritesheet = pygame.image.load(speaking_path)
 
-            # Split into 4 frames
-            frame_width = spritesheet.get_width() // 4
-            frame_height = spritesheet.get_height()
-            print(f"📊 Spritesheet size: {spritesheet.get_width()}x{spritesheet.get_height()}, frame size: {frame_width}x{frame_height}")
+        # Split into 4 frames
+        frame_width = spritesheet.get_width() // 4
+        frame_height = spritesheet.get_height()
 
-            for i in range(4):
-                frame = spritesheet.subsurface((i * frame_width, 0, frame_width, frame_height))
-                # Scale to fit graphics area
-                frame = pygame.transform.scale(frame, (640, 480))
-                self.speaking_frames.append(frame)
-
-            print(f"✅ {len(self.speaking_frames)} speaking frames loaded")
-        except Exception as e:
-            print(f"❌ Error loading sprites: {e}")
-            raise
+        for i in range(4):
+            frame = spritesheet.subsurface((i * frame_width, 0, frame_width, frame_height))
+            # Scale to fit graphics area
+            frame = pygame.transform.scale(frame, (640, 480))
+            self.speaking_frames.append(frame)
 
     def _render_frame(self):
         """Render one frame"""
@@ -168,11 +158,12 @@ class DisplayManager:
 
     def _run(self):
         """Main display loop (runs in thread)"""
+        if not self._init_pygame():
+            return
+
         self.running = True
         clock = pygame.time.Clock()
-        frame_count = 0
 
-        print("🔄 Display loop starting...")
         try:
             while self.running:
                 # Handle pygame events (required for display to work)
@@ -189,34 +180,17 @@ class DisplayManager:
                 # Cap at 30 FPS (independent of animation FPS)
                 clock.tick(30)
 
-                frame_count += 1
-                if frame_count == 1:
-                    print("✅ First frame rendered")
-                elif frame_count % 300 == 0:  # Every 10 seconds
-                    print(f"🎬 Display running... {frame_count} frames rendered")
-
         finally:
-            print("🛑 Display loop ending")
             pygame.quit()
 
     def start(self):
-        """Start the display (must be called from main thread)"""
+        """Start the display in a separate thread"""
         if self.thread is not None:
-            print("⚠️  Display thread already running")
             return
 
-        # Initialize pygame on main thread (required for video drivers)
-        print("🎬 Initializing display on main thread...")
-        if not self._init_pygame():
-            print("❌ Display initialization failed")
-            return
-
-        # Start render loop in separate thread
-        print("🚀 Starting display thread...")
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
-        time.sleep(0.1)  # Brief wait for thread to start
-        print("✅ Display thread launched")
+        time.sleep(0.5)  # Give it time to initialize
 
     def stop(self):
         """Stop the display"""
