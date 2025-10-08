@@ -108,7 +108,7 @@ class DisplayManager:
 
     def _create_gradient(self):
         """Create gradient surface for smooth transition between panes"""
-        gradient_width = 40  # Width of gradient in pixels
+        gradient_width = 200  # Width of gradient (x=200 to x=400)
         self.gradient = pygame.Surface((gradient_width, 480), pygame.SRCALPHA)
 
         # Get pane colors
@@ -134,20 +134,19 @@ class DisplayManager:
         # Clear graphics area (left half: 400x480)
         self.screen.fill(graphics_bg, (0, 0, 400, 480))
 
-        # Draw sprite in left half
+        # Draw gradient FIRST (x=200 to x=400) so sprite renders on top
+        self.screen.blit(self.gradient, (200, 0))
+
+        # Clear transcript area (right half: 400x480)
+        self.screen.fill(transcript_bg, (400, 0, 400, 480))
+
+        # Draw sprite in left half (renders on top of gradient)
         if self.is_speaking:
             # Animate through ping-pong frames
             frame_idx = self.ping_pong_frames[self.animation_frame]
             self.screen.blit(self.speaking_frames[frame_idx], (0, 0))
         else:
             self.screen.blit(self.idle_sprite, (0, 0))
-
-        # Clear transcript area (right half: 400x480)
-        self.screen.fill(transcript_bg, (400, 0, 400, 480))
-
-        # Draw gradient at transition (centered at x=400)
-        gradient_x = 400 - self.gradient.get_width() // 2
-        self.screen.blit(self.gradient, (gradient_x, 0))
 
         # Render transcripts
         self._render_transcripts()

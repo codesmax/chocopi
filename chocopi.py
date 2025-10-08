@@ -267,13 +267,16 @@ class ConversationSession:
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
             AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], blocking=self.blocking_response)
 
-            # If non-blocking playback, spawn thread to monitor completion
-            if not self.blocking_response and self.display:
-                def wait_for_completion():
-                    sd.wait()  # Wait for playback to finish
+            if self.display:
+                if self.blocking_response:
                     self.display.set_speaking(False)
+                else:
+                    # If non-blocking playback, spawn thread to monitor completion
+                    def wait_for_completion():
+                        sd.wait()  # Wait for playback to finish
+                        self.display.set_speaking(False)
 
-                threading.Thread(target=wait_for_completion, daemon=True).start()
+                    threading.Thread(target=wait_for_completion, daemon=True).start()
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
