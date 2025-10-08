@@ -5,6 +5,7 @@ import os
 import platform
 import queue
 import re
+import signal
 import threading
 import yaml
 import numpy as np
@@ -101,24 +102,18 @@ class WakeWordDetector:
             wakeword_models=self.model_paths,
         )
 
-        # State for async detection
-        self.frames = queue.Queue()
-        self.is_listening = False
-        self.detected_wake_word = None
+    def listen_for_wake_word(self):
+        """Listen for wake word and return detected wake word"""
 
-    def start_listening(self):
-        """Start listening for wake words (non-blocking)"""
-        if self.is_listening:
-            return
-
+        # Reset prediction and audio feature buffers
         self.model.reset()
-        self.detected_wake_word = None
-        print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
 
+        print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
         oww_config = CONFIG['openwakeword']
+        frames = queue.Queue()
 
         def audio_callback(processed_audio, *_):
-            self.frames.put(processed_audio)
+            frames.put(processed_audio)
 
         try:
             AUDIO.start_recording(
@@ -127,33 +122,8 @@ class WakeWordDetector:
                 blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
                 callback=audio_callback
             )
-            self.is_listening = True
-        except Exception as e:
-            print(f"❌ Audio input error: {e}")
-            raise
-
-    def stop_listening(self):
-        """Stop listening for wake words"""
-        if self.is_listening:
-            AUDIO.stop_recording()
-            self.is_listening = False
-            # Clear any pending frames
-            while not self.frames.empty():
-                try:
-                    self.frames.get_nowait()
-                except queue.Empty:
-                    break
-
-    async def check_wake_word(self):
-        """Check for wake word (non-blocking). Returns wake word if detected, None otherwise."""
-        if not self.is_listening:
-            return None
-
-        # Process all available frames
-        oww_config = CONFIG['openwakeword']
-        while not self.frames.empty():
-            try:
-                frame = self.frames.get_nowait()
+            while True:
+                frame = frames.get()
                 frame_flat = frame[:, 0].flatten()  # mono channel
                 prediction = self.model.predict(frame_flat)
 
@@ -162,15 +132,13 @@ class WakeWordDetector:
                         print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
                         if bool(os.environ.get('DEBUG')):
                             print(prediction.items())
-                        self.detected_wake_word = wake_word
-                        self.stop_listening()
+                        AUDIO.stop_recording()
                         return wake_word
-            except queue.Empty:
-                break
-
-        # Yield control to event loop
-        await asyncio.sleep(0)
-        return None
+        except Exception as e:
+            print(f"❌ Audio input error: {e}")
+            raise
+        finally:
+            AUDIO.stop_recording()
 
 class ConversationSession:
     """Conversation session with OpenAI Realtime API"""
@@ -265,18 +233,19 @@ class ConversationSession:
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
+            print(f"🔊 Starting playback")
+
+            # Always use non-blocking playback
             AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], blocking=self.blocking_response)
 
-            if self.display:
-                if self.blocking_response:
+            # Spawn thread to monitor completion and stop animation
+            def wait_for_completion():
+                sd.wait()  # Wait for playback to finish
+                if self.display:
                     self.display.set_speaking(False)
-                else:
-                    # If non-blocking playback, spawn thread to monitor completion
-                    def wait_for_completion():
-                        sd.wait()  # Wait for playback to finish
-                        self.display.set_speaking(False)
+                print(f"🔊 Playback complete")
 
-                    threading.Thread(target=wait_for_completion, daemon=True).start()
+            threading.Thread(target=wait_for_completion, daemon=True).start()
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
@@ -347,6 +316,7 @@ class ConversationSession:
             case "response.done":
                 # Start speaking animation before playback
                 if self.display:
+                    print(f"🎬 Starting speaking animation")
                     self.display.set_speaking(True)
 
                 self._play_response()
@@ -416,6 +386,7 @@ class ChocoPi:
         self.wake_word_detector = WakeWordDetector()
         self.wake_words = [lang_config['wake_word'].lower() for lang_config in CONFIG['languages'].values()]
         self.display = create_display_manager(CONFIG)
+        self.shutdown_requested = False
 
     def _get_wake_word_language(self, wake_word):
         """Get language configuration based on detected wake word"""
@@ -429,26 +400,27 @@ class ChocoPi:
 
         return default_lang
 
-    async def run(self):
-        """Run the main application loop (async)"""
+    def _signal_handler(self, signum, frame):
+        """Handle shutdown signals"""
+        print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
+        self.shutdown_requested = True
+
+    def run(self):
+        """Run the main application loop"""
+        # Set up signal handlers for graceful shutdown
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
         print(f"✨ Choco is ready! Say one of '{', '.join(self.wake_words)}' to start or end a conversation.")
 
-        # Initialize display on main thread if enabled
+        # Start display if enabled
         if self.display:
-            if not self.display.initialize():
-                print("⚠️  Failed to initialize display, continuing without it")
-                self.display = None
-
-        # Start wake word detection
-        self.wake_word_detector.start_listening()
-
-        # Track active conversation session
-        session_task = None
+            self.display.start()
 
         try:
-            while True:
-                # Check for wake word (non-blocking)
-                if wake_word := await self.wake_word_detector.check_wake_word():
+            while not self.shutdown_requested:
+                # Listen for wake word (blocking)
+                if wake_word := self.wake_word_detector.listen_for_wake_word():
                     lang = self._get_wake_word_language(wake_word)
 
                     # Wake up display
@@ -457,46 +429,33 @@ class ChocoPi:
 
                     AUDIO.start_playing(CONFIG['sounds']['awake'])
 
-                    # Run conversation session as background task
+                    # Run conversation session
                     session = ConversationSession(lang, display_manager=self.display)
-                    session_task = asyncio.create_task(session.run())
+                    asyncio.run(session.run())
 
-                # Check if session ended
-                if session_task and session_task.done():
                     AUDIO.start_playing(CONFIG['sounds']['bye'])
                     print("✅ Session ended.\n")
-                    session_task = None
 
                     # Put display to sleep
                     if self.display:
                         self.display.set_active(False)
 
-                    # Resume wake word listening
-                    self.wake_word_detector.start_listening()
+                    # Check for shutdown during session
+                    if self.shutdown_requested:
+                        break
 
-                # Handle pygame events (required for display to work)
-                if self.display:
-                    for event in pygame.event.get():
-                        if event.type == pygame.QUIT:
-                            return
-
-                # Render display frame
-                if self.display:
-                    self.display.render_frame()
-
-                # Async sleep for 30 FPS (non-blocking)
-                await asyncio.sleep(1/30)
-
-        except KeyboardInterrupt:
-            print("👋 Shutting down...")
+        except (KeyboardInterrupt, SystemExit):
+            print("\n👋 Shutting down...")
+        except Exception as e:
+            print(f"\n❌ Unexpected error: {e}")
         finally:
-            self.wake_word_detector.stop_listening()
+            print("🧹 Cleaning up...")
             if self.display:
-                self.display.cleanup()
+                self.display.stop()
 
 def main():
     app = ChocoPi()
-    asyncio.run(app.run())
+    app.run()
 
 if __name__ == '__main__':
     main()
