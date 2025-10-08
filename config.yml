@@ -37,7 +37,7 @@ session:
   sleep_word_threshold: 85
 
 display:
-  enabled: false  # Set to true to enable visual display
+  enabled: true  # Set to true to enable visual display
   width: 800
   height: 480
   graphics_height: 480

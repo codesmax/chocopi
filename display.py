@@ -36,17 +36,13 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame in the display thread"""
         try:
-            # Set XDG_RUNTIME_DIR if not set (use /tmp since we don't need it for real)
-            if 'XDG_RUNTIME_DIR' not in os.environ:
-                os.environ['XDG_RUNTIME_DIR'] = '/tmp'
-
             # Disable SDL audio (we use sounddevice instead)
             os.environ['SDL_AUDIODRIVER'] = 'dummy'
 
-            # Point SDL to the correct framebuffer device (DSI display is often fb1)
+            # Point SDL to the correct framebuffer device (DSI display on fb1)
             os.environ['SDL_FBDEV'] = '/dev/fb1'
 
-            # Let SDL auto-detect the video driver
+            # Let SDL auto-detect the video driver (will use kmsdrm on Pi 5)
             if 'SDL_VIDEODRIVER' in os.environ:
                 del os.environ['SDL_VIDEODRIVER']
 
