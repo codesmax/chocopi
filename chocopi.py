@@ -15,6 +15,7 @@ from enum import Enum
 from openwakeword.model import Model
 from dotenv import load_dotenv
 from rapidfuzz import fuzz
+from display import create_display_manager
 
 # Load configuration
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
@@ -146,7 +147,7 @@ class ConversationSession:
         GOODBYE = "goodbye"
         ERROR = "error"
 
-    def __init__(self, learning_language = 'ko'):
+    def __init__(self, learning_language = 'ko', display_manager=None):
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
@@ -155,6 +156,7 @@ class ConversationSession:
         self.is_active = True
         self.is_greeting = True
         self.is_terminating = False
+        self.display = display_manager
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -266,6 +268,11 @@ class ConversationSession:
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
                 print(f"🗣️  You said: {transcript}")
+
+                # Add to display
+                if self.display:
+                    self.display.add_transcript("user", transcript)
+
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
                     print(f"💤 Sleep word detected: '{transcript}'")
@@ -280,13 +287,26 @@ class ConversationSession:
                     audio_bytes = base64.b64decode(audio_base64)
                     self.response_chunks.append(audio_bytes)
 
+                    # Set speaking on first audio chunk
+                    if self.display and len(self.response_chunks) == 1:
+                        self.display.set_speaking(True)
+
             case "response.output_audio_transcript.done":
                 transcript = data.get("transcript", "")
                 print(f"🤖 Choco says: {transcript}")
 
+                # Add to display
+                if self.display:
+                    self.display.add_transcript("choco", transcript)
+
             case "response.done":
                 self._play_response()
                 self.response_chunks.clear()
+
+                # Stop speaking animation after playback
+                if self.display:
+                    self.display.set_speaking(False)
+
                 if self.is_greeting:
                     return Result.GREETED
                 if self.is_terminating:
@@ -347,6 +367,7 @@ class ChocoPi:
     def __init__(self):
         self.wake_word_detector = WakeWordDetector()
         self.wake_words = [lang_config['wake_word'].lower() for lang_config in CONFIG['languages'].values()]
+        self.display = create_display_manager(CONFIG)
 
     def _get_wake_word_language(self, wake_word):
         """Get language configuration based on detected wake word"""
@@ -364,13 +385,17 @@ class ChocoPi:
         """Run the main application loop"""
         print(f"✨ Choco is ready! Say one of '{', '.join(self.wake_words)}' to start or end a conversation.")
 
+        # Start display if enabled
+        if self.display:
+            self.display.start()
+
         try:
             while True:
                 if wake_word := self.wake_word_detector.listen_for_wake_word():
                     lang = self._get_wake_word_language(wake_word)
                     AUDIO.start_playing(CONFIG['sounds']['awake'])
 
-                    session = ConversationSession(lang)
+                    session = ConversationSession(lang, display_manager=self.display)
                     asyncio.run(session.run())
 
                     AUDIO.start_playing(CONFIG['sounds']['bye'])
@@ -378,6 +403,9 @@ class ChocoPi:
 
         except KeyboardInterrupt:
             print("👋 Shutting down...")
+        finally:
+            if self.display:
+                self.display.stop()
 
 def main():
     app = ChocoPi()

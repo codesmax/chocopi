@@ -36,6 +36,19 @@ session:
   conversation_timeout: 90
   sleep_word_threshold: 85
 
+display:
+  enabled: false  # Set to true to enable visual display
+  width: 800
+  height: 480
+  graphics_height: 480
+  transcript_height: 160
+  animation_fps: 8  # Frames per second for speaking animation
+  colors:
+    graphics_bg: "#222831"
+    transcript_bg: "#393E46"
+    text: "#EEEEEE"
+  font_size: 18
+
 audio:
   input_gain: 2.0 # multiplier (1.0 = no change, 2.0 = double)
 
