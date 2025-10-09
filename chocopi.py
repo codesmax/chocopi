@@ -20,7 +20,9 @@ from dotenv import load_dotenv
 from rapidfuzz import fuzz
 from display import create_display_manager
 
-# Load configuration
+# Environment
+DEBUG = bool(os.environ.get('DEBUG'))
+IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
 SCRIPT_PATH = os.path.dirname(os.path.realpath(__file__))
 MODELS_PATH = os.path.join(SCRIPT_PATH, 'models')
 SOUNDS_PATH = os.path.join(SCRIPT_PATH, 'sounds')
@@ -29,8 +31,6 @@ with open(os.path.join(SCRIPT_PATH, 'config.yml'), 'r', encoding='utf-8') as fil
     CONFIG = yaml.safe_load(file)
 
 load_dotenv(os.path.join(SCRIPT_PATH, '.env'))
-
-IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
 class AudioManager:
     """Audio manager for playback and recording"""
 
@@ -112,6 +112,7 @@ class WakeWordDetector:
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
         oww_config = CONFIG['openwakeword']
         frames = queue.Queue()
+        frame_count = 0
 
         def audio_callback(processed_audio, *_):
             frames.put(processed_audio)
@@ -129,13 +130,19 @@ class WakeWordDetector:
                 except queue.Empty:
                     continue
 
-                frame_flat = frame[:, 0].flatten()  # mono channel
+                frame_flat = frame[:, 0].flatten() # mono channel
                 prediction = self.model.predict(frame_flat)
+                frame_count += 1
+
+                # Debug: print predictions every 50 frames (~4 seconds at 80ms frames)
+                if DEBUG and frame_count % 25 == 0:
+                    scores = {wake_word: f"{score:.3f}" for wake_word, score in prediction.items()}
+                    print(f"🔍 Wake word scores: {scores}")
 
                 for wake_word, score in prediction.items():
                     if score > oww_config['threshold']:
                         print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
-                        if bool(os.environ.get('DEBUG')):
+                        if DEBUG:
                             print(prediction.items())
                         AUDIO.stop_recording()
                         return wake_word
@@ -155,7 +162,7 @@ class ConversationSession:
         GOODBYE = "goodbye"
         ERROR = "error"
 
-    def __init__(self, learning_language = 'ko', display_manager=None):
+    def __init__(self, learning_language = 'ko', display_manager=None, app=None):
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
@@ -165,6 +172,7 @@ class ConversationSession:
         self.is_greeting = True
         self.is_terminating = False
         self.display = display_manager
+        self.app = app
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -202,7 +210,7 @@ class ConversationSession:
         session_config['session']['instructions'] = instructions
         session_config['session']['audio']['input']['transcription']['prompt'] = transcription_prompt
 
-        if bool(os.environ.get('DEBUG')):
+        if DEBUG:
             print(f'⚙️  Session instructions: {instructions}')
             print(f'⚙️  Transcription prompt: {transcription_prompt}')
 
@@ -262,7 +270,7 @@ class ConversationSession:
         filtered_text = re.sub(r'[,.!?]', '', text.strip().lower())
         score = fuzz.ratio(sleep_word, filtered_text)
         if score >= threshold:
-            if bool(os.environ.get('DEBUG')):
+            if DEBUG:
                 print(f"✅ Sleep word fuzzy matched: '{sleep_word}' (score: {score})")
             return True
         return False
@@ -273,7 +281,7 @@ class ConversationSession:
         message_type = data.get("type")
 
         # Additional logging when DEBUG is enabled
-        if bool(os.environ.get('DEBUG')) and message_type not in {"response.output_audio.delta", "response.output_audio_transcript.delta"}:
+        if DEBUG and message_type not in {"response.output_audio.delta", "response.output_audio_transcript.delta"}:
             print(f"💬 Received message: {message_type}")
 
         match message_type:
@@ -320,16 +328,11 @@ class ConversationSession:
                     self.display.add_transcript("choco", transcript)
 
             case "response.done":
-                # Start speaking animation before playback
                 if self.display:
-                    print(f"🎬 Starting speaking animation")
                     self.display.set_speaking(True)
 
                 self._play_response()
                 self.response_chunks.clear()
-
-                # Speaking animation stops automatically when playback completes
-                # (handled by background thread in _play_response)
 
                 if self.is_greeting:
                     return Result.GREETED
@@ -351,6 +354,12 @@ class ConversationSession:
         try:
             await self.connect()
             while self.is_active:
+                # Check for shutdown request
+                if self.app and self.app.shutdown_requested:
+                    print("🛑 Shutdown requested, ending session...")
+                    self.is_active = False
+                    break
+
                 try:
                     # Short timeout for greeting, normal timeout for conversation
                     timeout = CONFIG['session']['greeting_timeout'] if self.is_greeting else CONFIG['session']['conversation_timeout']
@@ -437,7 +446,7 @@ class ChocoPi:
                     AUDIO.start_playing(CONFIG['sounds']['awake'])
 
                     # Run conversation session
-                    session = ConversationSession(lang, display_manager=self.display)
+                    session = ConversationSession(lang, display_manager=self.display, app=self)
                     asyncio.run(session.run())
 
                     AUDIO.start_playing(CONFIG['sounds']['bye'])
