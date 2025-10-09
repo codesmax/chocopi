@@ -112,7 +112,6 @@ class WakeWordDetector:
         print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
         oww_config = CONFIG['openwakeword']
         frames = queue.Queue()
-        frame_count = 0
 
         def audio_callback(processed_audio, *_):
             frames.put(processed_audio)
@@ -132,13 +131,6 @@ class WakeWordDetector:
 
                 frame_flat = frame[:, 0].flatten() # mono channel
                 prediction = self.model.predict(frame_flat)
-                frame_count += 1
-
-                # Debug: print predictions every 50 frames (~4 seconds at 80ms frames)
-                if DEBUG and frame_count % 25 == 0:
-                    scores = {wake_word: f"{score:.3f}" for wake_word, score in prediction.items()}
-                    print(f"🔍 Wake word scores: {scores}")
-
                 for wake_word, score in prediction.items():
                     if score > oww_config['threshold']:
                         print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
@@ -146,6 +138,9 @@ class WakeWordDetector:
                             print(prediction.items())
                         AUDIO.stop_recording()
                         return wake_word
+                    else:
+                        if DEBUG:
+                            print(f"🔍 Wake word {wake_word} (score: {score:.2f})")
             return None
         except Exception as e:
             print(f"❌ Audio input error: {e}")
