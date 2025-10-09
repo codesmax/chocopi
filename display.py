@@ -361,7 +361,9 @@ class DisplayManager:
     def add_transcript(self, speaker, text):
         """Add a transcript line (thread-safe)"""
         with self.lock:
-            self.transcripts.append((speaker, text))
+            # Replace newlines with spaces since we do our own word wrapping
+            filtered_text = text.replace('\n', ' ').replace('\r', ' ')
+            self.transcripts.append((speaker, filtered_text))
             # Keep only last 10 transcripts
             if len(self.transcripts) > 10:
                 self.transcripts.pop(0)
