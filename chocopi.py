@@ -139,7 +139,7 @@ class WakeWordDetector:
                         AUDIO.stop_recording()
                         return wake_word
                     else:
-                        if DEBUG:
+                        if score > 0.1 and DEBUG:
                             print(f"🔍 Wake word {wake_word} (score: {score:.2f})")
             return None
         except Exception as e:
