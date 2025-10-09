@@ -56,8 +56,10 @@ class DisplayManager:
             pygame.init()
 
             # Check if display is available
-            if not pygame.display.get_driver():
-                print("⚠️  No display available, disabling visual output")
+            if driver := pygame.display.get_driver():
+                print(f"✅ Display driver: {driver}")
+            else:
+                print("⚠️  No display driver available, disabling visual output")
                 return False
 
             # Set up full-screen display on Linux/Pi
