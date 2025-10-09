@@ -11,8 +11,8 @@ import sounddevice as sd
 import websockets
 from enum import Enum
 from rapidfuzz import fuzz
-from config import CONFIG, DEBUG
-from audio import AUDIO
+from chocopi.config import CONFIG, DEBUG
+from chocopi.audio import AUDIO
 
 
 class ConversationSession:

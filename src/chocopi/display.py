@@ -4,6 +4,7 @@ import threading
 import time
 import pygame
 from threading import Lock
+from chocopi.config import IMAGES_PATH, FONTS_PATH
 
 # Platform detection for event handling
 IS_MACOS = platform.system() == 'Darwin'
@@ -14,9 +15,8 @@ class DisplayManager:
 
     def __init__(self, config):
         self.config = config['display']
-        self.script_path = os.path.dirname(os.path.realpath(__file__))
-        self.images_path = os.path.join(self.script_path, 'images')
-        self.fonts_path = os.path.join(self.script_path, 'fonts')
+        self.images_path = IMAGES_PATH
+        self.fonts_path = FONTS_PATH
 
         # Computed dimensions based on config
         self.screen_width = self.config['width']

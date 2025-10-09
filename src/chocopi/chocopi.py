@@ -1,11 +1,11 @@
 """Main orchestrator for ChocoPi voice assistant"""
 import asyncio
 import signal
-from config import CONFIG
-from audio import AUDIO
-from wakeword import WakeWordDetector
-from conversation import ConversationSession
-from display import create_display_manager
+from chocopi.config import CONFIG
+from chocopi.audio import AUDIO
+from chocopi.wakeword import WakeWordDetector
+from chocopi.conversation import ConversationSession
+from chocopi.display import create_display_manager
 
 
 class ChocoPi:

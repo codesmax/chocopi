@@ -28,4 +28,5 @@ fi
 export PYTHONIOENCODING=utf-8
 SCRIPTPATH=$(dirname $0)
 source $SCRIPTPATH/.venv/bin/activate
-python $SCRIPTPATH/chocopi.py
+cd $SCRIPTPATH
+python -m chocopi

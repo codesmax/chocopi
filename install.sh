@@ -50,7 +50,7 @@ fi
 # Create virtual environment and install Python dependencies
 echo "Setting up Python environment..."
 sudo -u chocopi python3 -m venv /opt/chocopi/.venv
-sudo -u chocopi /opt/chocopi/.venv/bin/pip install -r /opt/chocopi/requirements.txt
+sudo -u chocopi /opt/chocopi/.venv/bin/pip install -e /opt/chocopi
 
 # Make chocopi script executable
 sudo chmod +x /opt/chocopi/chocopi

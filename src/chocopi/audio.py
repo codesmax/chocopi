@@ -2,7 +2,7 @@
 import os
 import sounddevice as sd
 import soundfile as sf
-from config import CONFIG, SOUNDS_PATH
+from chocopi.config import CONFIG, SOUNDS_PATH
 
 
 class AudioManager:

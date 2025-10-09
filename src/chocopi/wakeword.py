@@ -3,8 +3,8 @@ import os
 import queue
 import openwakeword
 from openwakeword.model import Model
-from config import CONFIG, DEBUG, IS_PI, MODELS_PATH
-from audio import AUDIO
+from chocopi.config import CONFIG, DEBUG, IS_PI, MODELS_PATH
+from chocopi.audio import AUDIO
 
 
 class WakeWordDetector:
