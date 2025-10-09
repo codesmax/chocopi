@@ -290,8 +290,10 @@ class DisplayManager:
                 # Render frame
                 self._render_frame()
 
-                # Cap at 30 FPS
-                clock.tick(30)
+                # Variable FPS: 30 when awake, 1 when sleeping
+                with self.lock:
+                    fps = 30 if self.is_active else 1
+                clock.tick(fps)
 
                 frame_count += 1
                 if frame_count == 1:

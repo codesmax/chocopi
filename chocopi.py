@@ -89,7 +89,6 @@ class WakeWordDetector:
     def __init__(self):
         self.framework = 'tflite' if IS_PI else 'onnx'
         self.model_paths = []
-        self.is_active = True
         for lang_config in CONFIG['languages'].values():
             model_name = lang_config['model']
             model_path = os.path.join(MODELS_PATH, f"{model_name}.{self.framework}")
@@ -104,7 +103,7 @@ class WakeWordDetector:
         )
 
     def listen_for_wake_word(self):
-        """Listen for wake word and return detected wake word (or None if shutting down)"""
+        """Listen for wake word and return detected wake word"""
 
         # Reset prediction and audio feature buffers
         self.model.reset()
@@ -123,7 +122,7 @@ class WakeWordDetector:
                 blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
                 callback=audio_callback
             )
-            while self.is_active:
+            while True:
                 try:
                     frame = frames.get(timeout=0.1)
                 except queue.Empty:
@@ -141,7 +140,6 @@ class WakeWordDetector:
                     else:
                         if score > 0.1 and DEBUG:
                             print(f"🔍 Wake word {wake_word} (score: {score:.2f})")
-            return None
         except Exception as e:
             print(f"❌ Audio input error: {e}")
             raise
@@ -157,7 +155,7 @@ class ConversationSession:
         GOODBYE = "goodbye"
         ERROR = "error"
 
-    def __init__(self, learning_language = 'ko', display_manager=None, app=None):
+    def __init__(self, learning_language = 'ko', display_manager=None):
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
@@ -167,7 +165,6 @@ class ConversationSession:
         self.is_greeting = True
         self.is_terminating = False
         self.display = display_manager
-        self.app = app
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -349,12 +346,6 @@ class ConversationSession:
         try:
             await self.connect()
             while self.is_active:
-                # Check for shutdown request
-                if self.app and self.app.shutdown_requested:
-                    print("🛑 Shutdown requested, ending session...")
-                    self.is_active = False
-                    break
-
                 try:
                     # Short timeout for greeting, normal timeout for conversation
                     timeout = CONFIG['session']['greeting_timeout'] if self.is_greeting else CONFIG['session']['conversation_timeout']
@@ -396,7 +387,6 @@ class ChocoPi:
         self.wake_word_detector = WakeWordDetector()
         self.wake_words = [lang_config['wake_word'].lower() for lang_config in CONFIG['languages'].values()]
         self.display = create_display_manager(CONFIG)
-        self.shutdown_requested = False
 
     def _get_wake_word_language(self, wake_word):
         """Get language configuration based on detected wake word"""
@@ -411,10 +401,9 @@ class ChocoPi:
         return default_lang
 
     def _signal_handler(self, signum, frame):
-        """Handle shutdown signals"""
+        """Handle shutdown signals by raising SystemExit"""
         print(f"\n🛑 Received signal {signum}, shutting down gracefully...")
-        self.shutdown_requested = True
-        self.wake_word_detector.is_active = False
+        raise SystemExit(0)
 
     def run(self):
         """Run the main application loop"""
@@ -429,31 +418,27 @@ class ChocoPi:
             self.display.start()
 
         try:
-            while not self.shutdown_requested:
+            while True:
                 # Listen for wake word (blocking)
-                if wake_word := self.wake_word_detector.listen_for_wake_word():
-                    lang = self._get_wake_word_language(wake_word)
+                wake_word = self.wake_word_detector.listen_for_wake_word()
+                lang = self._get_wake_word_language(wake_word)
 
-                    # Wake up display
-                    if self.display:
-                        self.display.set_active(True)
+                # Wake up display
+                if self.display:
+                    self.display.set_active(True)
 
-                    AUDIO.start_playing(CONFIG['sounds']['awake'])
+                AUDIO.start_playing(CONFIG['sounds']['awake'])
 
-                    # Run conversation session
-                    session = ConversationSession(lang, display_manager=self.display, app=self)
-                    asyncio.run(session.run())
+                # Run conversation session
+                session = ConversationSession(lang, display_manager=self.display)
+                asyncio.run(session.run())
 
-                    AUDIO.start_playing(CONFIG['sounds']['bye'])
-                    print("✅ Session ended.\n")
+                AUDIO.start_playing(CONFIG['sounds']['bye'])
+                print("✅ Session ended.\n")
 
-                    # Put display to sleep
-                    if self.display:
-                        self.display.set_active(False)
-
-                    # Check for shutdown during session
-                    if self.shutdown_requested:
-                        break
+                # Put display to sleep
+                if self.display:
+                    self.display.set_active(False)
 
         except (KeyboardInterrupt, SystemExit):
             print("\n👋 Shutting down...")
