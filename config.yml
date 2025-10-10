@@ -37,23 +37,29 @@ session:
   sleep_word_threshold: 85
 
 display:
-  enabled: true
   width: 800
   height: 480
-  graphics_height: 480
-  transcript_height: 160
-  animation_fps: 8 # speaking animation
+  frame_rates:   # fps
+    refresh: 30  # screen refresh rate
+    speaking: 8  # speaking animation
+    sleeping: 1  # sleeping animation
+  font: "NotoSansCJK-VF.otf.ttc"
+  font_size: 20
+  line_spacing: 10
   colors:
     idle_bg: "#141414"
     graphics_bg: "#0A2647"
     transcript_bg: "#144272"
-    choco_text: "#EEEEEE"
-    user_text: "#00ADB5"
-  font: "NotoSansCJK-VF.otf.ttc"
-  font_size: 18
+    choco_text: "#33BDC4"
+    user_text: "#008a91"
+    active_text: "#FFFFFF"
+  sprites:
+    idle: "choco-idle.png"
+    speaking: "choco-speaking.png"
+    sleeping: "choco-sleeping.png"
 
 audio:
-  input_gain: 2.0 # multiplier (1.0 = no change, 2.0 = double)
+  input_gain: 2.0  # multiplier (1.0 = no change, 2.0 = double)
 
 sounds:
   awake: "awake.wav"
@@ -63,12 +69,12 @@ sounds:
 openwakeword:
   threshold: 0.3
   sample_rate: 16000
-  frame_len_ms: 80 # multiples of 80ms recommended
+  frame_len_ms: 80  # multiples of 80ms recommended
 
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
-  frame_len_ms: 30
+  frame_len_ms: 25
   session_config:
     type: "session.update"
     session:

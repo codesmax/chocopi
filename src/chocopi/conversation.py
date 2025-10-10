@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 import queue
 import re
@@ -11,8 +12,10 @@ import sounddevice as sd
 import websockets
 from enum import Enum
 from rapidfuzz import fuzz
-from chocopi.config import CONFIG, DEBUG
+from chocopi.config import CONFIG
 from chocopi.audio import AUDIO
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationSession:
@@ -24,20 +27,20 @@ class ConversationSession:
         GOODBYE = "goodbye"
         ERROR = "error"
 
-    def __init__(self, learning_language = 'ko', display_manager=None):
+    def __init__(self, learning_language = 'ko', display=None):
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
         self.audio_queue = queue.Queue()
-        self.blocking_response = True
+        self.display = display
+        self.interruptible = False
         self.is_active = True
         self.is_greeting = True
         self.is_terminating = False
-        self.display = display_manager
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
-        print("🌐 Establishing connnection to Realtime API...")
+        logger.info("🌐 Establishing connnection to Realtime API...")
         openai_key = os.getenv('OPENAI_API_KEY')
         if not openai_key:
             raise ValueError("OPENAI_API_KEY environment variable not set. Please add it to your .env file.")
@@ -47,16 +50,16 @@ class ConversationSession:
             self.websocket = await websockets.connect(uri, additional_headers=headers)
 
             # Send session config
-            await self._send_session_config()
+            await self._update_session()
 
             # Create and send greeting response to initiate conversation
             await self.websocket.send(json.dumps(CONFIG['openai']['greeting_config']))
         except Exception as e:
-            print(f"❌ Failed to connect to OpenAI API: {e}")
+            logger.error("❌ Failed to connect to OpenAI API: %s", e)
             raise
 
-    async def _send_session_config(self):
-        """Send session configuration with language-specific instructions"""
+    async def _update_session(self):
+        """Update session configuration with language-specific instructions"""
         instruction_params = {}
         instruction_params['user_age'] = CONFIG['user_age']
         instruction_params['native_language'] = CONFIG['languages'][CONFIG['native_language']]['language_name']
@@ -71,13 +74,12 @@ class ConversationSession:
         session_config['session']['instructions'] = instructions
         session_config['session']['audio']['input']['transcription']['prompt'] = transcription_prompt
 
-        if DEBUG:
-            print(f'⚙️  Session instructions: {instructions}')
-            print(f'⚙️  Transcription prompt: {transcription_prompt}')
+        logger.debug('⚙️  Session instructions: %s', instructions)
+        logger.debug('⚙️  Transcription prompt: %s', transcription_prompt)
 
         await self.websocket.send(json.dumps(session_config))
 
-    def _start_listening(self):
+    def _listen(self):
         """Start audio capture with handler"""
         def audio_callback(processed_audio, *_):
             if self.is_active:
@@ -90,7 +92,7 @@ class ConversationSession:
             callback=audio_callback
         )
 
-    async def _process_audio(self):
+    async def _send_audio(self):
         """Process audio from queue and send"""
         while self.is_active:
             if not self.audio_queue.empty():
@@ -104,21 +106,19 @@ class ConversationSession:
             await asyncio.sleep(0.01)
 
     def _play_response(self):
-        """Play collected audio response and stop speaking animation when done"""
+        """Play collected audio response. Stop speaking animation if display is enabled"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
-            print(f"🔊 Reponse playback started")
-
-            # Always use non-blocking playback
-            AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], blocking=self.blocking_response)
+            logger.info("🔊 Reponse playback started")
+            AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], interruptible=self.interruptible)
 
             # Spawn thread to monitor completion and stop animation
             def wait_for_completion():
                 sd.wait()  # Wait for playback to finish
                 if self.display:
                     self.display.set_speaking(False)
-                print(f"🔊 Response playback finished")
+                logger.info("🔊 Response playback finished")
 
             threading.Thread(target=wait_for_completion, daemon=True).start()
 
@@ -131,23 +131,22 @@ class ConversationSession:
         filtered_text = re.sub(r'[,.!?]', '', text.strip().lower())
         score = fuzz.ratio(sleep_word, filtered_text)
         if score >= threshold:
-            if DEBUG:
-                print(f"✅ Sleep word fuzzy matched: '{sleep_word}' (score: {score})")
+            logger.debug("✅ Sleep word fuzzy matched: '%s' (score: %s)", sleep_word, score)
             return True
         return False
 
     async def _handle_message(self, data):
         """Handle incoming message from OpenAI"""
         Result = self.Result
-        message_type = data.get("type")
+        event_type = data.get("type")
 
         # Additional logging when DEBUG is enabled
-        if DEBUG and message_type not in {"response.output_audio.delta", "response.output_audio_transcript.delta"}:
-            print(f"💬 Received message: {message_type}")
+        if event_type not in {"response.output_audio.delta", "response.output_audio_transcript.delta"}:
+            logger.debug("💬 Received message: %s", event_type)
 
-        match message_type:
+        match event_type:
             case "input_audio_buffer.speech_started":
-                print("🔊 VAD: user speech started")
+                logger.info("🔊 VAD: user speech started")
 
                 # User is speaking; interrupt any ongoing response
                 AUDIO.stop_playing()
@@ -158,13 +157,13 @@ class ConversationSession:
                     self.display.set_speaking(False)
 
             case "input_audio_buffer.speech_stopped":
-                print("🔊 VAD: user speech ended")
+                logger.info("🔊 VAD: user speech ended")
 
                 AUDIO.start_playing(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
-                print(f"🗣️  You said: {transcript}")
+                logger.info("🗣️  You said: %s", transcript)
 
                 # Add to display
                 if self.display:
@@ -172,10 +171,10 @@ class ConversationSession:
 
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
-                    print(f"💤 Sleep word detected: '{transcript}'")
+                    logger.info("💤 Sleep word detected: '%s'", transcript)
 
                     # Prepare to terminate session
-                    self.blocking_response = True
+                    self.interruptible = False
                     self.is_terminating = True
                     AUDIO.stop_recording()
 
@@ -186,7 +185,7 @@ class ConversationSession:
 
             case "response.output_audio_transcript.done":
                 transcript = data.get("transcript", "")
-                print(f"🤖 Choco says: {transcript}")
+                logger.info("🤖 Choco says: %s", transcript)
 
                 # Add to display
                 if self.display:
@@ -205,7 +204,7 @@ class ConversationSession:
                     return Result.GOODBYE
 
             case "error":
-                print(f"❌ OpenAI API Error: {data}")
+                logger.error("❌ OpenAI API Error: %s", data)
                 self.is_active = False
                 AUDIO.stop_recording()
                 return Result.ERROR
@@ -229,10 +228,10 @@ class ConversationSession:
                     # Transition to conversation after greeting
                     if self.is_greeting and result == Result.GREETED:
                         self.is_greeting = False
-                        self.blocking_response = False
-                        self._start_listening()
-                        print("👂 Choco is listening...")
-                        audio_task = asyncio.create_task(self._process_audio())
+                        self.interruptible = True
+                        self._listen()
+                        logger.info("👂 Choco is listening...")
+                        audio_task = asyncio.create_task(self._send_audio())
                         continue
 
                     # Handle exit conditions
@@ -241,13 +240,15 @@ class ConversationSession:
                         break
 
                 except asyncio.TimeoutError:
-                    print("⚠️  Timeout waiting for greeting response" if self.is_greeting
-                          else f"⏲️  Session timeout reached ({timeout}s of inactivity)")
+                    if self.is_greeting:
+                        logger.error("⚠️  Timeout waiting for greeting response")
+                    else:
+                        logger.error("⏲️  Session timeout reached (%ss of inactivity)", timeout)
                     self.is_active = False
                     break
 
         except Exception as e:
-            print(f"⚠️  Error during conversation: {e}")
+            logger.error("⚠️  Error during conversation: %s", e)
         finally:
             if audio_task:
                 audio_task.cancel()

@@ -1,24 +1,32 @@
 """Configuration loading and constants"""
 import os
 import platform
+import logging
 import yaml
+from pathlib import Path
 from dotenv import load_dotenv
 
 # Environment
-DEBUG = bool(os.environ.get('DEBUG'))
 IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
 IS_MACOS = platform.system() == 'Darwin'
+LOG_LEVEL = os.environ.get('CHOCO_LOG', 'INFO').upper()
+USE_DISPLAY = bool(os.environ.get('CHOCO_DISPLAY', False))
 
-# Project root is two directories up from this file (src/chocopi/config.py)
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
-MODELS_PATH = os.path.join(PROJECT_ROOT, 'models')
-SOUNDS_PATH = os.path.join(PROJECT_ROOT, 'assets', 'sounds')
-IMAGES_PATH = os.path.join(PROJECT_ROOT, 'assets', 'images')
-FONTS_PATH = os.path.join(PROJECT_ROOT, 'assets', 'fonts')
+# Configure logging
+logging.basicConfig(level=logging.WARNING)  # Silence third-party libraries
+logging.getLogger('chocopi').setLevel(getattr(logging, LOG_LEVEL))
+
+# Project root (../..)
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MODELS_PATH = PROJECT_ROOT / 'models'
+ASSETS_PATH = PROJECT_ROOT / 'assets'
+SOUNDS_PATH = ASSETS_PATH / 'sounds'
+IMAGES_PATH = ASSETS_PATH / 'images'
+FONTS_PATH = ASSETS_PATH / 'fonts'
 
 # Load configuration
-with open(os.path.join(PROJECT_ROOT, 'config.yml'), 'r', encoding='utf-8') as file:
+with open(PROJECT_ROOT / 'config.yml', 'r', encoding='utf-8') as file:
     CONFIG = yaml.safe_load(file)
 
 # Load environment variables
-load_dotenv(os.path.join(PROJECT_ROOT, '.env'))
+load_dotenv(PROJECT_ROOT / '.env')

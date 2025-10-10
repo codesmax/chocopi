@@ -1,10 +1,13 @@
 """Wake word detection using OpenWakeWord"""
 import os
 import queue
+import logging
 import openwakeword
 from openwakeword.model import Model
-from chocopi.config import CONFIG, DEBUG, IS_PI, MODELS_PATH
+from chocopi.config import CONFIG, IS_PI, MODELS_PATH
 from chocopi.audio import AUDIO
+
+logger = logging.getLogger(__name__)
 
 
 class WakeWordDetector:
@@ -26,13 +29,13 @@ class WakeWordDetector:
             wakeword_models=self.model_paths,
         )
 
-    def listen_for_wake_word(self):
+    def listen(self):
         """Listen for wake word and return detected wake word"""
 
         # Reset prediction and audio feature buffers
         self.model.reset()
 
-        print(f"🎙️  Listening for wake word using {self.framework.upper()} model...")
+        logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
         oww_config = CONFIG['openwakeword']
         frames = queue.Queue()
 
@@ -56,16 +59,15 @@ class WakeWordDetector:
                 prediction = self.model.predict(frame_flat)
                 for wake_word, score in prediction.items():
                     if score > oww_config['threshold']:
-                        print(f"⏰ Wake word detected: {wake_word} (score: {score:.2f})")
-                        if DEBUG:
-                            print(prediction.items())
+                        logger.info("⏰ Wake word detected: %s (score: %.2f)", wake_word, score)
+                        logger.debug("Prediction items: %s", prediction.items())
                         AUDIO.stop_recording()
                         return wake_word
                     else:
-                        if score > 0.1 and DEBUG:
-                            print(f"🔍 Wake word {wake_word} (score: {score:.2f})")
+                        if score > 0.1:
+                            logger.debug("🔍 Wake word %s (score: %.2f)", wake_word, score)
         except Exception as e:
-            print(f"❌ Audio input error: {e}")
+            logger.error("❌ Audio input error: %s", e)
             raise
         finally:
             AUDIO.stop_recording()
