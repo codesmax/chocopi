@@ -36,8 +36,30 @@ session:
   conversation_timeout: 90
   sleep_word_threshold: 85
 
+display:
+  width: 800
+  height: 480
+  frame_rates:   # fps
+    refresh: 30  # screen refresh rate
+    speaking: 8  # speaking animation
+    sleeping: 1  # sleeping animation
+  font: "NotoSansCJK-VF.otf.ttc"
+  font_size: 24
+  line_spacing: 12
+  colors:
+    idle_bg: "#141414"
+    graphics_bg: "#0A2647"
+    transcript_bg: "#144272"
+    choco_text: "#33BDC4"
+    user_text: "#33BDC4"
+    active_text: "#FFFFFF"
+  sprites:
+    idle: "choco-idle.png"
+    speaking: "choco-speaking.png"
+    sleeping: "choco-sleeping.png"
+
 audio:
-  input_gain: 2.0 # multiplier (1.0 = no change, 2.0 = double)
+  input_gain: 2.0  # multiplier (1.0 = no change, 2.0 = double)
 
 sounds:
   awake: "awake.wav"
@@ -46,14 +68,13 @@ sounds:
 
 openwakeword:
   threshold: 0.3
-  vad_threshold: 0.1
   sample_rate: 16000
-  frame_len_ms: 80 # multiples of 80ms recommended
+  frame_len_ms: 80  # multiples of 80ms recommended
 
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
-  frame_len_ms: 40
+  frame_len_ms: 25
   session_config:
     type: "session.update"
     session:
@@ -66,9 +87,9 @@ openai:
             model: "gpt-4o-mini-transcribe"
           turn_detection:
             type: "server_vad"
-            threshold: 0.3
+            threshold: 0.4
             prefix_padding_ms: 300
-            silence_duration_ms: 800
+            silence_duration_ms: 1000
             create_response: true
             interrupt_response: true
         output:
@@ -88,8 +109,8 @@ openai:
     - Only transcribe speech in {native_language} and {learning_language}. Default to {native_language} if the language is not clear. Do not output other languages.
 
     # Sleep Word
-    - When the sleep word '{sleep_word}' is detected in the audio input, transcribe it exactly as spoken. Respond with a short (< 10 words)goodbye response.
-    - Never transcribe the sleep word unless it is detected in the audio input.
+    - When the sleep word '{sleep_word}' is detected in the audio input in {learning_language}, transcribe it exactly as spoken.
+    - Never transcribe the sleep word unless it is detected in the audio input in {learning_language}. Do not translate it.
     - The sleep word indicates the end of the conversation.
   session_instructions: >
     # Role & Objective
@@ -123,7 +144,7 @@ openai:
     2) If user speaks in {learning_language}:
       - Briefly restate/acknowledge their message in {learning_language}.
       - Always check for grammar, vocabulary, or pronunciation mistakes.
-      - If mistakes exist, you must include a correction (mandatory; takes priority).
+      - Only if mistakes exist, you must include a correction (mandatory; takes priority).
         - Write corrections in {native_language}.
         - Vary phrasing naturally (e.g., “Correction: …”, “Instead of X, say Y”, “We usually say Y, not X”, “Try saying Y instead”).
         - Keep corrections short and friendly. (Not counted in length.)
@@ -152,6 +173,9 @@ openai:
       - Ask the user to repeat in {learning_language} or {native_language}.
       - No language labels.
       Examples: “Sorry, I couldn’t hear you clearly. Could you say that again?” / “Please repeat slowly.” / “I didn’t quite catch that—try again?”
+
+    4) Ending the conversation:
+      - If the user says the sleep word '{sleep_word}' in {learning_language}, respond with a short (< 10 words) goodbye response.
 
     # Safety Rules (Always Active)
     - Never generate harmful, unsafe, or adult content; no violent, sexual, self-harm, or illegal content.

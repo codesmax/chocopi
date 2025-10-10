@@ -23,7 +23,7 @@ fi
 # Install system dependencies
 echo "Installing system dependencies..."
 sudo apt update
-sudo apt install -y git python3 python3-pip python3-venv libportaudio2
+sudo apt install -y git python3 python3-pip python3-venv libportaudio2 libegl1 python3-pygame
 
 # Create chocopi user if it doesn't exist
 if ! id "chocopi" &>/dev/null; then
@@ -50,7 +50,7 @@ fi
 # Create virtual environment and install Python dependencies
 echo "Setting up Python environment..."
 sudo -u chocopi python3 -m venv /opt/chocopi/.venv
-sudo -u chocopi /opt/chocopi/.venv/bin/pip install -r /opt/chocopi/requirements.txt
+sudo -u chocopi /opt/chocopi/.venv/bin/pip install -e /opt/chocopi
 
 # Make chocopi script executable
 sudo chmod +x /opt/chocopi/chocopi
