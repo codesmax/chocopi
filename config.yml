@@ -44,10 +44,12 @@ display:
   transcript_height: 160
   animation_fps: 8 # speaking animation
   colors:
+    idle_bg: "#141414"
     graphics_bg: "#0A2647"
     transcript_bg: "#144272"
     choco_text: "#EEEEEE"
     user_text: "#00ADB5"
+  font: "NotoSansCJK-VF.otf.ttc"
   font_size: 18
 
 audio:

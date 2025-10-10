@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 # Environment
 DEBUG = bool(os.environ.get('DEBUG'))
 IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
+IS_MACOS = platform.system() == 'Darwin'
 
 # Project root is two directories up from this file (src/chocopi/config.py)
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))

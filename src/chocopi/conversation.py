@@ -108,7 +108,7 @@ class ConversationSession:
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
-            print(f"🔊 Starting playback")
+            print(f"🔊 Reponse playback started")
 
             # Always use non-blocking playback
             AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], blocking=self.blocking_response)
@@ -118,7 +118,7 @@ class ConversationSession:
                 sd.wait()  # Wait for playback to finish
                 if self.display:
                     self.display.set_speaking(False)
-                print(f"🔊 Playback complete")
+                print(f"🔊 Response playback finished")
 
             threading.Thread(target=wait_for_completion, daemon=True).start()
 
@@ -147,6 +147,8 @@ class ConversationSession:
 
         match message_type:
             case "input_audio_buffer.speech_started":
+                print("🔊 VAD: user speech started")
+
                 # User is speaking; interrupt any ongoing response
                 AUDIO.stop_playing()
                 self.response_chunks.clear()
@@ -156,6 +158,8 @@ class ConversationSession:
                     self.display.set_speaking(False)
 
             case "input_audio_buffer.speech_stopped":
+                print("🔊 VAD: user speech ended")
+
                 AUDIO.start_playing(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":

@@ -8,7 +8,7 @@ from chocopi.audio import AUDIO
 
 
 class WakeWordDetector:
-    """Wake word detection using OpenWakeWord"""
+    """On-device wake word detection using OpenWakeWord"""
 
     def __init__(self):
         self.framework = 'tflite' if IS_PI else 'onnx'
