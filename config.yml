@@ -44,14 +44,14 @@ display:
     speaking: 8  # speaking animation
     sleeping: 1  # sleeping animation
   font: "NotoSansCJK-VF.otf.ttc"
-  font_size: 20
-  line_spacing: 10
+  font_size: 24
+  line_spacing: 12
   colors:
     idle_bg: "#141414"
     graphics_bg: "#0A2647"
     transcript_bg: "#144272"
     choco_text: "#33BDC4"
-    user_text: "#008a91"
+    user_text: "#33BDC4"
     active_text: "#FFFFFF"
   sprites:
     idle: "choco-idle.png"
