@@ -25,9 +25,9 @@ if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v amixer > /dev/null 2>&1; then
     fi
 fi
 
-export PYTHONUTF8=1         # Force UTF-8 encoding
-export CHOCO_DISPLAY=true   # Enable display
-export CHOCO_LOG=INFO       # Set log level
+export PYTHONUTF8=1     # Force UTF-8 encoding
+export CHOCO_DISPLAY=1  # Enable display
+export CHOCO_LOG=INFO   # Set log level
 
 SCRIPTPATH=$(dirname $0)
 source $SCRIPTPATH/.venv/bin/activate
