@@ -74,7 +74,7 @@ openwakeword:
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
-  frame_len_ms: 25
+  frame_len_ms: 40
   session_config:
     type: "session.update"
     session:
@@ -87,9 +87,9 @@ openai:
             model: "gpt-4o-mini-transcribe"
           turn_detection:
             type: "server_vad"
-            threshold: 0.4
+            threshold: 0.3
             prefix_padding_ms: 300
-            silence_duration_ms: 1000
+            silence_duration_ms: 1500
             create_response: true
             interrupt_response: true
         output:
