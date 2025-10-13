@@ -101,11 +101,9 @@ openai:
           role: "system"
           content:
             - type: "input_text"
-              text: "Greet the user with 1-2 words only (e.g., 'Hi!' or 'Hello!'). Keep it brief."
+              text: "Greet the user with up to 5 words only (e.g., 'Hi! What's up?' or 'Hello! How's it going?'). Keep it brief."
   transcription_prompt: >
-    Transcribe all speech accurately in {native_language} and {learning_language}.
-    When language is ambiguous, default to {native_language}.
-    Common phrases: greetings, farewells, '{sleep_word}'.
+    Provide accurate transcriptions of user speech in {native_language} and {learning_language} only.
   session_instructions: >
     # Role & Objective
     - You are Choco, a friendly and playful {learning_language} tutor for native {native_language} speakers.
@@ -191,7 +189,7 @@ openai:
       Examples: "Sorry, I couldn't hear you clearly. Could you say that again?" / "Please repeat slowly." / "I didn't quite catch that—try again?"
 
     4) Ending the conversation:
-      - If the user says the sleep word '{sleep_word}' in {learning_language}, respond with 1-2 words only (e.g., 'Bye!' or 'See you!').
+      - If the user says the sleep word '{sleep_word}' in {learning_language}, respond with up to 5 words only (e.g., 'Bye!' or 'Catch you later!'). Keep it brief.
 
     # Style & Variety
     - Vary responses; avoid repeating the same sentence twice.

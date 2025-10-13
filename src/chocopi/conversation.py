@@ -79,12 +79,12 @@ class ConversationSession:
         # Get event loop for thread-safe queue operations
         loop = asyncio.get_running_loop()
 
-        def audio_callback(processed_audio, _frames, _time, status):
+        def audio_callback(indata, _frames, _time, status):
             if status:
                 logger.warning("⚠️  Audio device status: %s", status)
             if self.is_active:
                 try:
-                    loop.call_soon_threadsafe(self.audio_queue.put_nowait, processed_audio.copy())
+                    loop.call_soon_threadsafe(self.audio_queue.put_nowait, indata.copy())
                 except asyncio.QueueFull:
                     logger.warning("⚠️  Audio queue full, dropping frame")
                 except Exception as e:
@@ -98,7 +98,6 @@ class ConversationSession:
             blocksize=blocksize,
             callback=audio_callback
         )
-        logger.debug("🔊 Conversation recording started (sample_rate=%d, blocksize=%d)", CONFIG['openai']['sample_rate'], blocksize)
 
         try:
             # Keep task alive until canceled
@@ -130,7 +129,7 @@ class ConversationSession:
                     self.display.set_speaking(False)
                 logger.info("🔊 Response playback finished")
 
-            # Wait for greeting/goodbye, run in background for conversation
+            # Wait for greeting/goodbye; run in background for conversation
             if self.is_greeting or self.is_terminating:
                 await complete_playback()
             else:

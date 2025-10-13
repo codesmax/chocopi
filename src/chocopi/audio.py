@@ -51,7 +51,6 @@ class AudioManager:
                 audio_np = np.frombuffer(data, dtype=np.int16)
                 sd.play(audio_np, sample_rate, blocksize=blocksize, blocking=blocking)
             else:
-                # Already numpy array
                 sd.play(data, sample_rate, blocksize=blocksize, blocking=blocking)
         except Exception as e:
             logger.error("❌ Audio playback error: %s", e)

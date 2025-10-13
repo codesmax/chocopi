@@ -41,8 +41,8 @@ class WakeWordDetector:
         audio_queue = asyncio.Queue()
         loop = asyncio.get_running_loop()
 
-        def audio_callback(processed_audio, *_):
-            loop.call_soon_threadsafe(audio_queue.put_nowait, processed_audio)
+        def audio_callback(indata, *_):
+            loop.call_soon_threadsafe(audio_queue.put_nowait, indata.copy())
 
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
@@ -53,9 +53,9 @@ class WakeWordDetector:
                 blocksize=blocksize,
                 callback=audio_callback
             )
-            logger.debug("🔊 Wake word recording started (sample_rate=%d, blocksize=%d)", self.config['sample_rate'], blocksize)
 
-            while (chunk := await audio_queue.get()) is not None:
+            while True:
+                chunk = await audio_queue.get()
                 chunk_flat = chunk[:, 0].flatten() # mono channel
                 prediction = self.model.predict(chunk_flat)
                 for wake_word, score in prediction.items():
