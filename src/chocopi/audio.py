@@ -16,41 +16,18 @@ class AudioManager:
     def __init__(self):
         self.input_stream = None
 
-    def start_recording(self, sample_rate, dtype, blocksize, input_gain, callback):
+    def start_recording(self, sample_rate, dtype, blocksize, callback):
         """Start recording"""
         # Limit to one recording stream
         if self.input_stream:
             self.stop_recording()
-
-        def gain_callback(indata, *args):
-            if input_gain != 1.0:
-                processed = indata * input_gain
-
-                # Clip to range based on dtype
-                max_val = np.max(np.abs(processed))
-                if dtype == 'float32':  # -1.0..1.0
-                    if max_val > 1.0:
-                        logger.debug("🔇 Clipping detected: max value %.3f before clipping (gain=%.1f)",
-                                    max_val, input_gain)
-                    processed = np.clip(processed, -1.0, 1.0)
-                elif dtype == 'int16':  # -32768..32767
-                    if max_val > 32767:
-                        logger.debug("🔇 Clipping detected: max value %.0f before clipping (gain=%.1f)",
-                                    max_val, input_gain)
-                    processed = np.clip(processed, -32768, 32767).astype(np.int16)
-                else:
-                    logger.warning("❌ Unsupported dtype for input gain: %s", dtype)
-                    processed = indata.copy()
-            else:
-                processed = indata.copy()
-            callback(processed, *args)
 
         self.input_stream = sd.InputStream(
             samplerate=sample_rate,
             channels=1,
             dtype=dtype,
             blocksize=blocksize,
-            callback=gain_callback
+            callback=callback
         )
         self.input_stream.start()
 
@@ -69,7 +46,12 @@ class AudioManager:
                     data = os.path.join(SOUNDS_PATH, data)
                 file_data, file_sample_rate = sf.read(data)
                 sd.play(file_data, file_sample_rate, blocksize=blocksize, blocking=blocking)
+            elif isinstance(data, bytes):
+                # Convert raw bytes to numpy array for sounddevice
+                audio_np = np.frombuffer(data, dtype=np.int16)
+                sd.play(audio_np, sample_rate, blocksize=blocksize, blocking=blocking)
             else:
+                # Already numpy array
                 sd.play(data, sample_rate, blocksize=blocksize, blocking=blocking)
         except Exception as e:
             logger.error("❌ Audio playback error: %s", e)

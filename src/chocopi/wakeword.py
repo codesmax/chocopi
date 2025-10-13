@@ -46,16 +46,14 @@ class WakeWordDetector:
 
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
-            input_gain = self.config.get('input_gain', CONFIG['audio']['input_gain'])
 
             AUDIO.start_recording(
                 sample_rate=self.config['sample_rate'],
                 dtype='int16',
                 blocksize=blocksize,
-                input_gain=input_gain,
                 callback=audio_callback
             )
-            logger.debug("🔊 Wake word recording started (sample_rate=%d, blocksize=%d, input_gain=%.1f)", self.config['sample_rate'], blocksize, input_gain)
+            logger.debug("🔊 Wake word recording started (sample_rate=%d, blocksize=%d)", self.config['sample_rate'], blocksize)
 
             while (chunk := await audio_queue.get()) is not None:
                 chunk_flat = chunk[:, 0].flatten() # mono channel

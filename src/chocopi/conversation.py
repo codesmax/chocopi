@@ -5,7 +5,6 @@ import json
 import logging
 import os
 import re
-import numpy as np
 import websockets
 from enum import Enum
 from rapidfuzz import fuzz
@@ -92,16 +91,14 @@ class ConversationSession:
                     logger.warning("⚠️  Audio callback error: %s", e)
 
         blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
-        input_gain = CONFIG['openai'].get('input_gain', CONFIG['audio']['input_gain'])
 
         AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
-            dtype='float32',
+            dtype='int16',
             blocksize=blocksize,
-            input_gain=input_gain,
-            callback=audio_callback,
+            callback=audio_callback
         )
-        logger.debug("🔊 Conversation recording started (sample_rate=%d, blocksize=%d, input_gain=%.1f)", CONFIG['openai']['sample_rate'], blocksize, input_gain)
+        logger.debug("🔊 Conversation recording started (sample_rate=%d, blocksize=%d)", CONFIG['openai']['sample_rate'], blocksize)
 
         try:
             # Keep task alive until canceled
@@ -111,13 +108,11 @@ class ConversationSession:
 
     async def _send_audio(self):
         """Process audio from queue and send"""
-        import time
         try:
-            while self.is_active and (chunk := await self.audio_queue.get()) is not None:
-                # Convert to int16 required by API
-                chunk_int16 = (chunk * 32767).astype(np.int16)
-                chunk_b64 = base64.b64encode(chunk_int16.tobytes()).decode('utf-8')
-                message = {"type": "input_audio_buffer.append", "audio": chunk_b64}
+            while self.is_active:
+                chunk = await self.audio_queue.get()
+                b64_chunk = base64.b64encode(chunk.tobytes()).decode('utf-8')
+                message = {"type": "input_audio_buffer.append", "audio": b64_chunk}
                 await self.websocket.send(json.dumps(message))
         except websockets.ConnectionClosed:
             logger.error("⚠️  Websocket closed. Stopping audio uploader...")
@@ -126,9 +121,8 @@ class ConversationSession:
         """Play collected audio response and optionally wait for completion"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
-            audio_np = np.frombuffer(combined_audio, dtype=np.int16)
             logger.info("🔊 Response playback started")
-            AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'])
+            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
             async def complete_playback():
                 await AUDIO.wait_for_playback()

@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 
 # Environment
 IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
-IS_MACOS = platform.system() == 'Darwin'
 LOG_LEVEL = os.environ.get('CHOCO_LOG', 'INFO').upper()
 USE_DISPLAY = bool(os.environ.get('CHOCO_DISPLAY', False))
 
