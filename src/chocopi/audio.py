@@ -61,16 +61,16 @@ class AudioManager:
             self.input_stream.close()
             self.input_stream = None
 
-    def start_playing(self, data, sample_rate=24000, blocksize=4096, interruptible=True):
+    def start_playing(self, data, sample_rate=24000, blocksize=4096, blocking=False):
         """Playback of sound files or raw audio data"""
         try:
             if isinstance(data, str):
                 if not data.startswith('/'):
                     data = os.path.join(SOUNDS_PATH, data)
-                audio_data, fs = sf.read(data)
-                sd.play(audio_data, fs, blocksize=blocksize, blocking=not interruptible)
+                file_data, file_sample_rate = sf.read(data)
+                sd.play(file_data, file_sample_rate, blocksize, blocking)
             else:
-                sd.play(data, sample_rate, blocksize=blocksize, blocking=not interruptible)
+                sd.play(data, sample_rate, blocksize, blocking)
         except Exception as e:
             logger.error("❌ Audio playback error: %s", e)
 

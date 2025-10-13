@@ -53,13 +53,13 @@ class ChocoPi:
                 if self.display:
                     self.display.set_active(True)
 
-                AUDIO.start_playing(CONFIG['sounds']['awake'])
+                AUDIO.start_playing(CONFIG['sounds']['awake'], blocking=True)
 
                 # Run conversation session
                 session = ConversationSession(lang, display=self.display)
                 await session.run()
 
-                AUDIO.start_playing(CONFIG['sounds']['bye'])
+                AUDIO.start_playing(CONFIG['sounds']['bye'], blocking=True)
                 logger.info("✅ Session ended.\n")
 
                 # Put display to sleep

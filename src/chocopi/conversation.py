@@ -179,7 +179,7 @@ class ConversationSession:
             case "input_audio_buffer.speech_stopped":
                 logger.info("🔊 VAD: user speech ended")
 
-                AUDIO.start_playing(CONFIG['sounds']['sent'])
+                AUDIO.start_playing(CONFIG['sounds']['sent'], blocking=True)
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")

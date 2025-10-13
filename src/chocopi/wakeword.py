@@ -57,8 +57,7 @@ class WakeWordDetector:
             )
             logger.debug("🔊 Wake word recording started (sample_rate=%d, blocksize=%d, input_gain=%.1f)", self.config['sample_rate'], blocksize, input_gain)
 
-            while True:
-                chunk = await audio_queue.get()
+            while (chunk := await audio_queue.get()) is not None:
                 chunk_flat = chunk[:, 0].flatten() # mono channel
                 prediction = self.model.predict(chunk_flat)
                 for wake_word, score in prediction.items():
