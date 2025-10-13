@@ -68,9 +68,9 @@ class AudioManager:
                 if not data.startswith('/'):
                     data = os.path.join(SOUNDS_PATH, data)
                 file_data, file_sample_rate = sf.read(data)
-                sd.play(file_data, file_sample_rate, blocksize, blocking)
+                sd.play(file_data, file_sample_rate, blocksize=blocksize, blocking=blocking)
             else:
-                sd.play(data, sample_rate, blocksize, blocking)
+                sd.play(data, sample_rate, blocksize=blocksize, blocking=blocking)
         except Exception as e:
             logger.error("❌ Audio playback error: %s", e)
 
