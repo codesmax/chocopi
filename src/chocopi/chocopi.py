@@ -34,22 +34,19 @@ class ChocoPi:
         logger.info("\n🛑 Received signal %s, shutting down gracefully...", signum)
         raise SystemExit(0)
 
-    def run(self):
+    async def run(self):
         """Run the main application loop"""
-        # Set up signal handlers for graceful shutdown
-        signal.signal(signal.SIGTERM, self._signal_handler)
-        signal.signal(signal.SIGINT, self._signal_handler)
-
         logger.info("✨ Choco is ready! Say one of '%s' to start or end a conversation.", ', '.join(self.wake_words))
 
-        # Start display if enabled
+        # Start display task if enabled
+        display_task = None
         if self.display:
-            self.display.start()
+            display_task = asyncio.create_task(self.display.run())
 
         try:
             while True:
-                # Listen for wake word (blocking)
-                wake_word = self.wake_word_detector.listen()
+                # Listen for wake word
+                wake_word = await self.wake_word_detector.listen()
                 lang = self._wake_word_language(wake_word)
 
                 # Wake up display
@@ -60,7 +57,7 @@ class ChocoPi:
 
                 # Run conversation session
                 session = ConversationSession(lang, display=self.display)
-                asyncio.run(session.run())
+                await session.run()
 
                 AUDIO.start_playing(CONFIG['sounds']['bye'])
                 logger.info("✅ Session ended.\n")
@@ -75,13 +72,23 @@ class ChocoPi:
             logger.error("\n❌ Unexpected error: %s", e)
         finally:
             logger.info("🧹 Cleaning up...")
-            if self.display:
-                self.display.stop()
+            if display_task:
+                self.display.is_running = False
+                display_task.cancel()
+                try:
+                    await display_task
+                except asyncio.CancelledError:
+                    pass
 
 
 def main():
     app = ChocoPi()
-    app.run()
+
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, app._signal_handler)
+    signal.signal(signal.SIGINT, app._signal_handler)
+
+    asyncio.run(app.run())
 
 if __name__ == '__main__':
     main()

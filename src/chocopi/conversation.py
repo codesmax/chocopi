@@ -5,9 +5,7 @@ import json
 import logging
 import os
 import re
-import threading
 import numpy as np
-import sounddevice as sd
 import websockets
 from enum import Enum
 from rapidfuzz import fuzz
@@ -32,7 +30,6 @@ class ConversationSession:
         self.response_chunks = []
         self.audio_queue = asyncio.Queue()
         self.display = display
-        self.interruptible = False
         self.is_active = True
         self.is_greeting = True
         self.is_terminating = False
@@ -125,22 +122,25 @@ class ConversationSession:
         except websockets.ConnectionClosed:
             logger.error("⚠️  Websocket closed. Stopping audio uploader...")
 
-    def _play_response(self):
-        """Play collected audio response. Stop speaking animation if display is enabled"""
+    async def _play_response(self):
+        """Play collected audio response and optionally wait for completion"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             audio_np = np.frombuffer(combined_audio, dtype=np.int16)
-            logger.info("🔊 Reponse playback started")
-            AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'], interruptible=self.interruptible)
+            logger.info("🔊 Response playback started")
+            AUDIO.start_playing(audio_np, CONFIG['openai']['sample_rate'])
 
-            # Spawn thread to monitor completion and stop animation
-            def wait_for_completion():
-                sd.wait()  # Wait for playback to finish
+            async def complete_playback():
+                await AUDIO.wait_for_playback()
                 if self.display:
                     self.display.set_speaking(False)
                 logger.info("🔊 Response playback finished")
 
-            threading.Thread(target=wait_for_completion, daemon=True).start()
+            # Wait for greeting/goodbye, run in background for conversation
+            if self.is_greeting or self.is_terminating:
+                await complete_playback()
+            else:
+                asyncio.create_task(complete_playback())
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
@@ -160,7 +160,7 @@ class ConversationSession:
         Result = self.Result
         event_type = data.get("type")
 
-        # Additional logging when DEBUG is enabled
+        # Quieter debug logging
         if event_type not in {"response.output_audio.delta", "response.output_audio_transcript.delta"}:
             logger.debug("💬 Received message: %s", event_type)
 
@@ -193,7 +193,6 @@ class ConversationSession:
                     logger.info("💤 Sleep word detected: '%s'", transcript)
 
                     # Prepare to terminate session
-                    self.interruptible = False
                     self.is_terminating = True
                     AUDIO.stop_recording()
 
@@ -213,7 +212,7 @@ class ConversationSession:
                 if self.display:
                     self.display.set_speaking(True)
 
-                self._play_response()
+                await self._play_response()
                 self.response_chunks.clear()
 
                 if self.is_greeting:
@@ -248,7 +247,6 @@ class ConversationSession:
                     # Transition to conversation after greeting
                     if self.is_greeting and result == Result.GREETED:
                         self.is_greeting = False
-                        self.interruptible = True
                         logger.info("👂 Choco is listening...")
                         listen_task = asyncio.create_task(self._listen())
                         upload_task = asyncio.create_task(self._send_audio())

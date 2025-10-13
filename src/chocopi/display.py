@@ -1,11 +1,11 @@
+import asyncio
 import os
 import platform
-import threading
 import time
 import logging
 import pygame
 from threading import Lock
-from chocopi.config import USE_DISPLAY, IS_MACOS, IS_PI, IMAGES_PATH, FONTS_PATH
+from chocopi.config import USE_DISPLAY, IS_PI, IMAGES_PATH, FONTS_PATH
 
 logger = logging.getLogger(__name__)
 
@@ -25,10 +25,9 @@ class DisplayManager:
         self.gradient_start = self.pane_width - self.gradient_width
         self.transcript_margin = 10
 
-        # Thread safety
+        # Thread safety (lock still needed for pygame operations)
         self.lock = Lock()
         self.is_running = False
-        self.thread = None
 
         # State
         self.is_active = False  # False = sleeping (dimmed), True = awake
@@ -50,7 +49,7 @@ class DisplayManager:
         self.gradient = None
 
     def _init_pygame(self):
-        """Initialize pygame in the display thread"""
+        """Initialize pygame"""
         try:
             pygame.init()
             if driver := pygame.display.get_driver():
@@ -267,29 +266,25 @@ class DisplayManager:
 
             self.last_frame_time = current_time
 
-    def _run(self):
-        """Main display loop (runs in thread)"""
-        logger.debug("🎬 Display thread starting...")
+    async def run(self):
+        """Main display loop (runs as async task)"""
+        logger.debug("🎬 Display task starting...")
 
-        # On Linux/Pi, initialize pygame in this thread (EGL context requirement)
-        # On macOS, pygame was already initialized on main thread
-        if not IS_MACOS:
-            if not self._init_pygame():
-                logger.error("❌ Display initialization failed")
-                return
+        # Initialize pygame (always in main thread with asyncio)
+        if not self._init_pygame():
+            logger.error("❌ Display initialization failed")
+            return
 
         self.is_running = True
-        clock = pygame.time.Clock()
         frame_count = 0
 
         logger.debug("🔄 Display loop starting...")
         try:
             while self.is_running:
-                # Handle pygame events (on Linux/Pi only - macOS requires main thread)
-                if not IS_MACOS:
-                    for event in pygame.event.get():
-                        if event.type == pygame.QUIT:
-                            self.is_running = False
+                # Handle pygame events
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.is_running = False
 
                 self._update_animation()
                 self._render_frame()
@@ -297,7 +292,7 @@ class DisplayManager:
                 # Variable FPS: refresh rate when awake, sleeping animation rate when sleeping
                 with self.lock:
                     fps = self.config['frame_rates']['refresh'] if self.is_active else self.config['frame_rates']['sleeping']
-                clock.tick(fps)
+                await asyncio.sleep(1.0 / fps)
 
                 frame_count += 1
                 if frame_count == 1:
@@ -306,38 +301,6 @@ class DisplayManager:
                     logger.debug("🎬 Display running... %s frames rendered", frame_count)
         finally:
             logger.debug("🛑 Display loop ending")
-            if not IS_MACOS:
-                pygame.quit()
-
-    def start(self):
-        """Start the display (pygame init on main thread for macOS, worker thread for Pi)"""
-        if self.thread is not None:
-            logger.error("⚠️  Display thread already running")
-            return
-
-        # On macOS, initialize pygame on main thread (required for Cocoa)
-        # On Pi/Linux, init happens in worker thread (required for EGL context)
-        if IS_MACOS:
-            logger.debug("🎬 Initializing pygame on main thread (macOS)...")
-            if not self._init_pygame():
-                logger.error("❌ Display initialization failed")
-                return
-
-        logger.debug("🚀 Starting display thread...")
-        self.thread = threading.Thread(target=self._run, daemon=True)
-        self.thread.start()
-        time.sleep(0.1)  # Time to initialize
-        logger.debug("✅ Display thread launched")
-
-    def stop(self):
-        """Stop the display (must be called from main thread on macOS)"""
-        self.is_running = False
-        if self.thread:
-            self.thread.join(timeout=2.0)
-            self.thread = None
-
-        # On macOS, quit pygame on main thread
-        if IS_MACOS:
             pygame.quit()
 
     def set_active(self, active):

@@ -71,13 +71,13 @@ openwakeword:
   vad_threshold: 0.3
   sample_rate: 16000
   chunk_duration_ms: 80  # multiples of 80ms recommended
-  input_gain: 3.0
+  input_gain: 1.0
 
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
   chunk_duration_ms: 40
-  input_gain: 2.0
+  input_gain: 1.0
   session_config:
     type: "session.update"
     session:

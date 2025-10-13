@@ -1,4 +1,5 @@
 """Audio management for playback and recording"""
+import asyncio
 import os
 import logging
 import numpy as np
@@ -77,6 +78,10 @@ class AudioManager:
         """Stops playback if active"""
         if sd.get_stream().active:
             sd.stop()
+
+    async def wait_for_playback(self):
+        """Wait for current playback to complete"""
+        await asyncio.to_thread(sd.wait)
 
 
 # Global audio manager instance

@@ -1,6 +1,6 @@
 """Wake word detection using OpenWakeWord"""
+import asyncio
 import os
-import queue
 import logging
 import openwakeword
 from openwakeword.model import Model
@@ -31,17 +31,18 @@ class WakeWordDetector:
             vad_threshold=self.config['vad_threshold'],
         )
 
-    def listen(self):
+    async def listen(self):
         """Listen for wake word and return detected wake word"""
 
         # Reset prediction and audio feature buffers
         self.model.reset()
 
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
-        audio_queue = queue.Queue()
+        audio_queue = asyncio.Queue()
+        loop = asyncio.get_running_loop()
 
         def audio_callback(processed_audio, *_):
-            audio_queue.put(processed_audio)
+            loop.call_soon_threadsafe(audio_queue.put_nowait, processed_audio)
 
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
@@ -56,7 +57,8 @@ class WakeWordDetector:
             )
             logger.debug("🔊 Wake word recording started (sample_rate=%d, blocksize=%d, input_gain=%.1f)", self.config['sample_rate'], blocksize, input_gain)
 
-            while (chunk := audio_queue.get()) is not None:
+            while True:
+                chunk = await audio_queue.get()
                 chunk_flat = chunk[:, 0].flatten() # mono channel
                 prediction = self.model.predict(chunk_flat)
                 for wake_word, score in prediction.items():
