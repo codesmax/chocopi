@@ -4,7 +4,6 @@ import base64
 import json
 import logging
 import os
-import queue
 import re
 import threading
 import numpy as np
@@ -31,7 +30,7 @@ class ConversationSession:
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
-        self.audio_queue = queue.Queue()
+        self.audio_queue = asyncio.Queue()
         self.display = display
         self.interruptible = False
         self.is_active = True
@@ -79,31 +78,52 @@ class ConversationSession:
 
         await self.websocket.send(json.dumps(session_config))
 
-    def _listen(self):
+    async def _listen(self):
         """Start audio capture with handler"""
-        def audio_callback(processed_audio, *_):
+        # Get event loop for thread-safe queue operations
+        loop = asyncio.get_running_loop()
+
+        def audio_callback(processed_audio, _frames, _time, status):
+            if status:
+                logger.warning("⚠️  Audio device status: %s", status)
             if self.is_active:
-                self.audio_queue.put(processed_audio.astype(np.int16))
+                try:
+                    loop.call_soon_threadsafe(self.audio_queue.put_nowait, processed_audio.copy())
+                except asyncio.QueueFull:
+                    logger.warning("⚠️  Audio queue full, dropping frame")
+                except Exception as e:
+                    logger.warning("⚠️  Audio callback error: %s", e)
+
+        blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
+        input_gain = CONFIG['openai'].get('input_gain', CONFIG['audio']['input_gain'])
 
         AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
-            dtype='int16',
-            blocksize=int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['frame_len_ms'] / 1000),
-            callback=audio_callback
+            dtype='float32',
+            blocksize=blocksize,
+            input_gain=input_gain,
+            callback=audio_callback,
         )
+        logger.debug("🔊 Conversation recording started (sample_rate=%d, blocksize=%d, input_gain=%.1f)", CONFIG['openai']['sample_rate'], blocksize, input_gain)
+
+        try:
+            # Keep task alive until canceled
+            await asyncio.Event().wait()
+        finally:
+            AUDIO.stop_recording()
 
     async def _send_audio(self):
         """Process audio from queue and send"""
-        while self.is_active:
-            if not self.audio_queue.empty():
-                try:
-                    audio_data = self.audio_queue.get_nowait()
-                    audio_base64 = base64.b64encode(audio_data.tobytes()).decode('utf-8')
-                    message = {"type": "input_audio_buffer.append", "audio": audio_base64}
-                    await self.websocket.send(json.dumps(message))
-                except queue.Empty:
-                    pass
-            await asyncio.sleep(0.01)
+        import time
+        try:
+            while self.is_active and (chunk := await self.audio_queue.get()) is not None:
+                # Convert to int16 required by API
+                chunk_int16 = (chunk * 32767).astype(np.int16)
+                chunk_b64 = base64.b64encode(chunk_int16.tobytes()).decode('utf-8')
+                message = {"type": "input_audio_buffer.append", "audio": chunk_b64}
+                await self.websocket.send(json.dumps(message))
+        except websockets.ConnectionClosed:
+            logger.error("⚠️  Websocket closed. Stopping audio uploader...")
 
     def _play_response(self):
         """Play collected audio response. Stop speaking animation if display is enabled"""
@@ -165,7 +185,6 @@ class ConversationSession:
                 transcript = data.get("transcript", "")
                 logger.info("🗣️  You said: %s", transcript)
 
-                # Add to display
                 if self.display:
                     self.display.add_transcript("user", transcript)
 
@@ -187,7 +206,6 @@ class ConversationSession:
                 transcript = data.get("transcript", "")
                 logger.info("🤖 Choco says: %s", transcript)
 
-                # Add to display
                 if self.display:
                     self.display.add_transcript("choco", transcript)
 
@@ -214,7 +232,9 @@ class ConversationSession:
     async def run(self):
         """Run conversation session"""
         Result = self.Result
-        audio_task = None
+        listen_task = None
+        upload_task = None
+
         try:
             await self.connect()
             while self.is_active:
@@ -229,9 +249,9 @@ class ConversationSession:
                     if self.is_greeting and result == Result.GREETED:
                         self.is_greeting = False
                         self.interruptible = True
-                        self._listen()
                         logger.info("👂 Choco is listening...")
-                        audio_task = asyncio.create_task(self._send_audio())
+                        listen_task = asyncio.create_task(self._listen())
+                        upload_task = asyncio.create_task(self._send_audio())
                         continue
 
                     # Handle exit conditions
@@ -250,8 +270,9 @@ class ConversationSession:
         except Exception as e:
             logger.error("⚠️  Error during conversation: %s", e)
         finally:
-            if audio_task:
-                audio_task.cancel()
-            AUDIO.stop_recording()
+            if listen_task:
+                listen_task.cancel()
+            if upload_task:
+                upload_task.cancel()
             if self.websocket:
                 await self.websocket.close()

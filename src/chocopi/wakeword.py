@@ -14,6 +14,7 @@ class WakeWordDetector:
     """On-device wake word detection using OpenWakeWord"""
 
     def __init__(self):
+        self.config = CONFIG['openwakeword']
         self.framework = 'tflite' if IS_PI else 'onnx'
         self.model_paths = []
         for lang_config in CONFIG['languages'].values():
@@ -27,6 +28,7 @@ class WakeWordDetector:
         self.model = Model(
             inference_framework=self.framework,
             wakeword_models=self.model_paths,
+            vad_threshold=self.config['vad_threshold'],
         )
 
     def listen(self):
@@ -36,36 +38,36 @@ class WakeWordDetector:
         self.model.reset()
 
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
-        oww_config = CONFIG['openwakeword']
-        frames = queue.Queue()
+        audio_queue = queue.Queue()
 
         def audio_callback(processed_audio, *_):
-            frames.put(processed_audio)
+            audio_queue.put(processed_audio)
 
         try:
+            blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
+            input_gain = self.config.get('input_gain', CONFIG['audio']['input_gain'])
+
             AUDIO.start_recording(
-                sample_rate=oww_config['sample_rate'],
+                sample_rate=self.config['sample_rate'],
                 dtype='int16',
-                blocksize=int(oww_config['sample_rate'] * oww_config['frame_len_ms'] / 1000),
+                blocksize=blocksize,
+                input_gain=input_gain,
                 callback=audio_callback
             )
-            while True:
-                try:
-                    frame = frames.get(timeout=0.1)
-                except queue.Empty:
-                    continue
+            logger.debug("🔊 Wake word recording started (sample_rate=%d, blocksize=%d, input_gain=%.1f)", self.config['sample_rate'], blocksize, input_gain)
 
-                frame_flat = frame[:, 0].flatten() # mono channel
-                prediction = self.model.predict(frame_flat)
+            while (chunk := audio_queue.get()) is not None:
+                chunk_flat = chunk[:, 0].flatten() # mono channel
+                prediction = self.model.predict(chunk_flat)
                 for wake_word, score in prediction.items():
-                    if score > oww_config['threshold']:
-                        logger.info("⏰ Wake word detected: %s (score: %.2f)", wake_word, score)
+                    if score > self.config['threshold']:
+                        logger.info("⏰ Wake word activated: %s (score: %.2f)", wake_word, score)
                         logger.debug("Prediction items: %s", prediction.items())
                         AUDIO.stop_recording()
                         return wake_word
                     else:
-                        if score > 0.1:
-                            logger.debug("🔍 Wake word %s (score: %.2f)", wake_word, score)
+                        if score > 0.01:
+                            logger.debug("🔍 Wake word detected: %s (score: %.2f)", wake_word, score)
         except Exception as e:
             logger.error("❌ Audio input error: %s", e)
             raise

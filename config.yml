@@ -59,7 +59,7 @@ display:
     sleeping: "choco-sleeping.png"
 
 audio:
-  input_gain: 2.0  # multiplier (1.0 = no change, 2.0 = double)
+  input_gain: 1.0  # default multiplier (1.0 = no change, 2.0 = double)
 
 sounds:
   awake: "awake.wav"
@@ -68,13 +68,16 @@ sounds:
 
 openwakeword:
   threshold: 0.3
+  vad_threshold: 0.3
   sample_rate: 16000
-  frame_len_ms: 80  # multiples of 80ms recommended
+  chunk_duration_ms: 80  # multiples of 80ms recommended
+  input_gain: 3.0
 
 openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
-  frame_len_ms: 40
+  chunk_duration_ms: 40
+  input_gain: 2.0
   session_config:
     type: "session.update"
     session:
@@ -89,7 +92,7 @@ openai:
             type: "server_vad"
             threshold: 0.3
             prefix_padding_ms: 300
-            silence_duration_ms: 1500
+            silence_duration_ms: 800
             create_response: true
             interrupt_response: true
         output:
