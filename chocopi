@@ -2,7 +2,7 @@
 
 # Set default audio volume on Linux systems
 if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v amixer > /dev/null 2>&1; then
-    DEFAULT_INPUT_VOLUME=85%
+    DEFAULT_INPUT_VOLUME=100%
     DEFAULT_OUTPUT_VOLUME=100%
     DEFAULT_INPUT=$(amixer scontrols | grep -i -E '(capture|mic|input)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
     DEFAULT_OUTPUT=$(amixer scontrols | grep -i -E '(master|speaker|headphone|pcm|playback)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
@@ -27,7 +27,7 @@ fi
 
 export PYTHONUTF8=1                       # Force UTF-8 encoding
 export CHOCO_DISPLAY=${CHOCO_DISPLAY:-1}  # Enable display, default to 1 if unset
-export CHOCO_LOG=${CHOCO_LOG:-INFO}       # Set log level, default to INFO if unset
+export CHOCO_LOG=${CHOCO_LOG:-DEBUG}      # Set log level, default to INFO if unset
 
 SCRIPTPATH=$(dirname $0)
 source $SCRIPTPATH/.venv/bin/activate
