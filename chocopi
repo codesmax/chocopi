@@ -27,7 +27,7 @@ fi
 
 export PYTHONUTF8=1                       # Force UTF-8 encoding
 export CHOCO_DISPLAY=${CHOCO_DISPLAY:-1}  # Enable display, default to 1 if unset
-export CHOCO_LOG=${CHOCO_LOG:-DEBUG}      # Set log level, default to INFO if unset
+export CHOCO_LOG=${CHOCO_LOG:-INFO}       # Set log level, default to INFO if unset
 
 SCRIPTPATH=$(dirname $0)
 source $SCRIPTPATH/.venv/bin/activate
