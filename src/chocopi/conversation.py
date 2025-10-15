@@ -121,7 +121,7 @@ class ConversationSession:
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
-            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
+            await AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
             async def complete_playback():
                 await AUDIO.wait_for_playback()
@@ -172,7 +172,7 @@ class ConversationSession:
             case "input_audio_buffer.speech_stopped":
                 logger.info("🔊 VAD: user speech ended")
 
-                AUDIO.start_playing(CONFIG['sounds']['sent'])
+                await AUDIO.start_playing(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")

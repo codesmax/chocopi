@@ -38,22 +38,23 @@ class AudioManager:
             self.input_stream.close()
             self.input_stream = None
 
-    def start_playing(self, data, sample_rate=24000, blocksize=4096, blocking=False):
-        """Playback of sound files or raw audio data"""
-        try:
-            if isinstance(data, str):
-                if not data.startswith('/'):
-                    data = os.path.join(SOUNDS_PATH, data)
-                file_data, file_sample_rate = sf.read(data)
-                sd.play(file_data, file_sample_rate, blocksize=blocksize, blocking=blocking)
-            elif isinstance(data, bytes):
-                # Convert raw bytes to numpy array for sounddevice
-                audio_np = np.frombuffer(data, dtype=np.int16)
-                sd.play(audio_np, sample_rate, blocksize=blocksize, blocking=blocking)
-            else:
-                sd.play(data, sample_rate, blocksize=blocksize, blocking=blocking)
-        except Exception as e:
-            logger.error("❌ Audio playback error: %s", e)
+    async def start_playing(self, data, sample_rate=24000, blocksize=4096):
+        """Non-blocking audio playback"""
+        def _play():
+            try:
+                if isinstance(data, str):
+                    path = data if data.startswith('/') else os.path.join(SOUNDS_PATH, data)
+                    file_data, fs = sf.read(path)
+                    sd.play(file_data, fs, blocksize=blocksize)
+                elif isinstance(data, bytes):
+                    audio_np = np.frombuffer(data, dtype=np.int16)
+                    sd.play(audio_np, sample_rate, blocksize=blocksize)
+                else:
+                    sd.play(data, sample_rate, blocksize=blocksize)
+            except Exception as e:
+                logger.error("❌ Audio playback error: %s", e)
+
+        await asyncio.to_thread(_play)
 
     def stop_playing(self):
         """Stops playback if active"""
