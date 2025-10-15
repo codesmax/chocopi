@@ -92,7 +92,7 @@ class ConversationSession:
 
         blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
 
-        AUDIO.start_recording(
+        await AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
             dtype='int16',
             blocksize=blocksize,
@@ -103,7 +103,7 @@ class ConversationSession:
             # Keep task alive until canceled
             await asyncio.Event().wait()
         finally:
-            AUDIO.stop_recording()
+            await AUDIO.stop_recording()
 
     async def _send_audio(self):
         """Process audio from queue and send"""
@@ -187,7 +187,7 @@ class ConversationSession:
 
                     # Prepare to terminate session
                     self.is_terminating = True
-                    AUDIO.stop_recording()
+                    await AUDIO.stop_recording()
 
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
@@ -216,7 +216,7 @@ class ConversationSession:
             case "error":
                 logger.error("❌ OpenAI API Error: %s", data)
                 self.is_active = False
-                AUDIO.stop_recording()
+                await AUDIO.stop_recording()
                 return Result.ERROR
 
         return None

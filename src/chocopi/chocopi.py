@@ -74,7 +74,7 @@ class ChocoPi:
             logger.info("🧹 Cleaning up...")
 
             # Stop all audio streams
-            AUDIO.stop_recording()
+            await AUDIO.stop_recording()
             await AUDIO.stop_playing()
 
             # Cancel display task

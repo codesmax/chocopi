@@ -47,7 +47,7 @@ class WakeWordDetector:
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
 
-            AUDIO.start_recording(
+            await AUDIO.start_recording(
                 sample_rate=self.config['sample_rate'],
                 dtype='int16',
                 blocksize=blocksize,
@@ -62,7 +62,7 @@ class WakeWordDetector:
                     if score > self.config['threshold']:
                         logger.info("⏰ Wake word activated: %s (score: %.2f)", wake_word, score)
                         logger.debug("Prediction items: %s", prediction.items())
-                        AUDIO.stop_recording()
+                        await AUDIO.stop_recording()
                         return wake_word
                     else:
                         if score > 0.01:
@@ -71,4 +71,4 @@ class WakeWordDetector:
             logger.error("❌ Audio input error: %s", e)
             raise
         finally:
-            AUDIO.stop_recording()
+            await AUDIO.stop_recording()
