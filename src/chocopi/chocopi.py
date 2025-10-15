@@ -72,6 +72,12 @@ class ChocoPi:
             logger.error("\n❌ Unexpected error: %s", e)
         finally:
             logger.info("🧹 Cleaning up...")
+
+            # Stop all audio streams
+            AUDIO.stop_recording()
+            await AUDIO.stop_playing()
+
+            # Cancel display task
             if display_task:
                 self.display.is_running = False
                 display_task.cancel()

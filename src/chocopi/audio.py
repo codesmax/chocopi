@@ -56,10 +56,16 @@ class AudioManager:
 
         await asyncio.to_thread(_play)
 
-    def stop_playing(self):
-        """Stops playback if active"""
-        if sd.get_stream().active:
-            sd.stop()
+    async def stop_playing(self):
+        """Stops playback if active (non-blocking)"""
+        def _stop():
+            try:
+                if sd.get_stream().active:
+                    sd.stop()
+            except Exception as e:
+                logger.warning("⚠️  Error stopping playback: %s", e)
+
+        await asyncio.to_thread(_stop)
 
     async def wait_for_playback(self):
         """Wait for current playback to complete"""
