@@ -4,7 +4,9 @@ import base64
 import json
 import logging
 import os
+import queue
 import re
+import numpy as np
 import websockets
 from enum import Enum
 from rapidfuzz import fuzz
@@ -27,7 +29,7 @@ class ConversationSession:
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
-        self.audio_queue = asyncio.Queue()
+        self.audio_queue = queue.Queue()
         self.display = display
         self.is_active = True
         self.is_greeting = True
@@ -74,66 +76,57 @@ class ConversationSession:
 
         await self.websocket.send(json.dumps(session_config))
 
-    async def _listen(self):
+    def _listen(self):
         """Start audio capture with handler"""
-        # Get event loop for thread-safe queue operations
-        loop = asyncio.get_running_loop()
-
         def audio_callback(indata, _frames, _time, status):
             if status:
                 logger.warning("⚠️  Audio device status: %s", status)
             if self.is_active:
-                try:
-                    loop.call_soon_threadsafe(self.audio_queue.put_nowait, indata.copy())
-                except asyncio.QueueFull:
-                    logger.warning("⚠️  Audio queue full, dropping frame")
-                except Exception as e:
-                    logger.warning("⚠️  Audio callback error: %s", e)
+                self.audio_queue.put(indata.astype(np.int16))
 
         blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
 
-        await AUDIO.start_recording(
+        AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
             dtype='int16',
             blocksize=blocksize,
-            callback=audio_callback
+            callback=audio_callback,
+            input_gain=CONFIG['openai']['input_gain']
         )
-
-        try:
-            # Keep task alive until canceled
-            await asyncio.Event().wait()
-        finally:
-            await AUDIO.stop_recording()
 
     async def _send_audio(self):
         """Process audio from queue and send"""
-        try:
-            while self.is_active:
-                chunk = await self.audio_queue.get()
-                b64_chunk = base64.b64encode(chunk.tobytes()).decode('utf-8')
-                message = {"type": "input_audio_buffer.append", "audio": b64_chunk}
-                await self.websocket.send(json.dumps(message))
-        except websockets.ConnectionClosed:
-            logger.error("⚠️  Websocket closed. Stopping audio uploader...")
+        while self.is_active:
+            if not self.audio_queue.empty():
+                try:
+                    audio_data = self.audio_queue.get_nowait()
+                    b64_chunk = base64.b64encode(audio_data.tobytes()).decode('utf-8')
+                    message = {"type": "input_audio_buffer.append", "audio": b64_chunk}
+                    await self.websocket.send(json.dumps(message))
+                except queue.Empty:
+                    pass
+            # Yield to event loop
+            await asyncio.sleep(0.01)
 
     async def _play_response(self):
         """Play collected audio response and optionally wait for completion"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
-            await AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
+            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
-            async def complete_playback():
-                await AUDIO.wait_for_playback()
+            async def playback_completion():
+                while AUDIO.is_playing():
+                    await asyncio.sleep(0.1)  # Poll every 100ms
                 if self.display:
                     self.display.set_speaking(False)
                 logger.info("🔊 Response playback finished")
 
-            # Wait for greeting/goodbye; run in background for conversation
+            # For greeting + goodbye, await playback completion before continuing
             if self.is_greeting or self.is_terminating:
-                await complete_playback()
+                await playback_completion()
             else:
-                asyncio.create_task(complete_playback())
+                asyncio.create_task(playback_completion())
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
@@ -162,7 +155,7 @@ class ConversationSession:
                 logger.info("🔊 VAD: user speech started")
 
                 # User is speaking; interrupt any ongoing response
-                await AUDIO.stop_playing()
+                AUDIO.stop_playing()
                 self.response_chunks.clear()
 
                 # Stop speaking animation when interrupted
@@ -172,7 +165,7 @@ class ConversationSession:
             case "input_audio_buffer.speech_stopped":
                 logger.info("🔊 VAD: user speech ended")
 
-                await AUDIO.start_playing(CONFIG['sounds']['sent'])
+                AUDIO.start_playing(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
@@ -184,10 +177,13 @@ class ConversationSession:
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
                     logger.info("💤 Sleep word detected: '%s'", transcript)
-
-                    # Prepare to terminate session
                     self.is_terminating = True
-                    await AUDIO.stop_recording()
+
+                    # Goodbye response already played; terminate session
+                    if not self.response_chunks:
+                        logger.debug("👋 Goodbye already played, terminating")
+                        AUDIO.stop_recording()
+                        return Result.GOODBYE
 
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
@@ -211,12 +207,13 @@ class ConversationSession:
                 if self.is_greeting:
                     return Result.GREETED
                 if self.is_terminating:
+                    AUDIO.stop_recording()
                     return Result.GOODBYE
 
             case "error":
                 logger.error("❌ OpenAI API Error: %s", data)
                 self.is_active = False
-                await AUDIO.stop_recording()
+                AUDIO.stop_recording()
                 return Result.ERROR
 
         return None
@@ -224,7 +221,6 @@ class ConversationSession:
     async def run(self):
         """Run conversation session"""
         Result = self.Result
-        listen_task = None
         upload_task = None
 
         try:
@@ -241,7 +237,7 @@ class ConversationSession:
                     if self.is_greeting and result == Result.GREETED:
                         self.is_greeting = False
                         logger.info("👂 Choco is listening...")
-                        listen_task = asyncio.create_task(self._listen())
+                        self._listen()  # Start recording synchronously
                         upload_task = asyncio.create_task(self._send_audio())
                         continue
 
@@ -261,8 +257,7 @@ class ConversationSession:
         except Exception as e:
             logger.error("⚠️  Error during conversation: %s", e)
         finally:
-            if listen_task:
-                listen_task.cancel()
+            AUDIO.stop_recording()
             if upload_task:
                 upload_task.cancel()
             if self.websocket:

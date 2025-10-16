@@ -2,6 +2,7 @@
 import asyncio
 import os
 import logging
+import queue
 import openwakeword
 from openwakeword.model import Model
 from chocopi.config import CONFIG, IS_PI, MODELS_PATH
@@ -38,37 +39,41 @@ class WakeWordDetector:
         self.model.reset()
 
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
-        audio_queue = asyncio.Queue()
-        loop = asyncio.get_running_loop()
+        audio_queue = queue.Queue()
 
         def audio_callback(indata, *_):
-            loop.call_soon_threadsafe(audio_queue.put_nowait, indata.copy())
+            audio_queue.put(indata.copy())
 
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
 
-            await AUDIO.start_recording(
+            AUDIO.start_recording(
                 sample_rate=self.config['sample_rate'],
                 dtype='int16',
                 blocksize=blocksize,
-                callback=audio_callback
+                callback=audio_callback,
+                input_gain=self.config['input_gain']
             )
 
             while True:
-                chunk = await audio_queue.get()
-                chunk_flat = chunk[:, 0].flatten() # mono channel
-                prediction = self.model.predict(chunk_flat)
-                for wake_word, score in prediction.items():
-                    if score > self.config['threshold']:
-                        logger.info("⏰ Wake word activated: %s (score: %.2f)", wake_word, score)
-                        logger.debug("Prediction items: %s", prediction.items())
-                        await AUDIO.stop_recording()
-                        return wake_word
-                    else:
-                        if score > 0.01:
-                            logger.debug("🔍 Wake word detected: %s (score: %.2f)", wake_word, score)
+                # Poll queue with timeout to yield control
+                try:
+                    chunk = audio_queue.get(timeout=0.01)
+                    chunk_flat = chunk[:, 0].flatten() # mono channel
+                    prediction = self.model.predict(chunk_flat)
+                    for wake_word, score in prediction.items():
+                        if score > self.config['threshold']:
+                            logger.info("⏰ Wake word activated: %s (score: %.2f)", wake_word, score)
+                            logger.debug("Prediction items: %s", prediction.items())
+                            AUDIO.stop_recording()
+                            return wake_word
+                        else:
+                            if score > 0.01:
+                                logger.debug("🔍 Wake word detected: %s (score: %.2f)", wake_word, score)
+                except queue.Empty:
+                    await asyncio.sleep(0.01)  # Yield to event loop
         except Exception as e:
             logger.error("❌ Audio input error: %s", e)
             raise
         finally:
-            await AUDIO.stop_recording()
+            AUDIO.stop_recording()
