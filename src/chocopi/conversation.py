@@ -6,7 +6,6 @@ import logging
 import os
 import queue
 import re
-import threading
 import numpy as np
 import websockets
 from enum import Enum
@@ -109,20 +108,25 @@ class ConversationSession:
             await asyncio.sleep(0.01)
 
     def _play_response(self):
-        """Play collected audio response and monitor completion"""
+        """Play collected audio response with completion callback"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
-            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
-            # Spawn thread to monitor completion
-            def wait_for_completion():
-                AUDIO.wait_for_playback()
+            # Get event loop for thread-safe callback
+            loop = asyncio.get_running_loop()
+
+            def on_playback_finished():
+                """Called when playback finishes (runs in portaudio thread)"""
                 if self.display:
-                    self.display.set_speaking(False)
-                logger.info("🔊 Response playback finished")
+                    loop.call_soon_threadsafe(self.display.set_speaking, False)
+                loop.call_soon_threadsafe(logger.info, "🔊 Response playback finished")
 
-            threading.Thread(target=wait_for_completion, daemon=True).start()
+            AUDIO.start_playing(
+                combined_audio,
+                CONFIG['openai']['sample_rate'],
+                finished_callback=on_playback_finished
+            )
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
