@@ -92,7 +92,7 @@ class ConversationSession:
 
         blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
 
-        await AUDIO.start_recording(
+        AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
             dtype='int16',
             blocksize=blocksize,
@@ -103,7 +103,7 @@ class ConversationSession:
             # Keep task alive until canceled
             await asyncio.Event().wait()
         finally:
-            await AUDIO.stop_recording()
+            AUDIO.stop_recording()
 
     async def _send_audio(self):
         """Process audio from queue and send"""
@@ -121,10 +121,10 @@ class ConversationSession:
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
-            await AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
+            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
             async def complete_playback():
-                await AUDIO.wait_for_playback()
+                await asyncio.to_thread(AUDIO.wait_for_playback)
                 if self.display:
                     self.display.set_speaking(False)
                 logger.info("🔊 Response playback finished")
@@ -172,7 +172,7 @@ class ConversationSession:
             case "input_audio_buffer.speech_stopped":
                 logger.info("🔊 VAD: user speech ended")
 
-                await AUDIO.start_playing(CONFIG['sounds']['sent'])
+                AUDIO.start_playing(CONFIG['sounds']['sent'])
 
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
@@ -187,7 +187,7 @@ class ConversationSession:
 
                     # Prepare to terminate session
                     self.is_terminating = True
-                    await AUDIO.stop_recording()
+                    AUDIO.stop_recording()
 
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
@@ -216,7 +216,7 @@ class ConversationSession:
             case "error":
                 logger.error("❌ OpenAI API Error: %s", data)
                 self.is_active = False
-                await AUDIO.stop_recording()
+                AUDIO.stop_recording()
                 return Result.ERROR
 
         return None
