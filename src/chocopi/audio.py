@@ -14,7 +14,6 @@ class AudioManager:
 
     def __init__(self):
         self.input_stream = None
-        self.output_stream = None
 
     def start_recording(self, sample_rate, dtype, blocksize, callback):
         """Start recording"""
@@ -39,49 +38,35 @@ class AudioManager:
             self.input_stream.close()
             self.input_stream = None
 
-    def start_playing(self, data, sample_rate=24000, finished_callback=None):
-        """Play audio file or data with optional completion callback"""
+    def start_playing(self, data, sample_rate=24000, blocksize=4096):
+        """Play audio file or data (non-blocking)"""
         try:
-            # Stop existing playback if any
-            if self.output_stream and self.output_stream.active:
-                self.output_stream.stop()
-                self.output_stream.close()
-
             # Convert data to numpy array
             if isinstance(data, str):
                 path = data if data.startswith('/') else os.path.join(SOUNDS_PATH, data)
-                audio_np, sample_rate = sf.read(path, dtype='int16')
+                file_data, fs = sf.read(path)
+                sd.play(file_data, fs, blocksize=blocksize)
             elif isinstance(data, bytes):
                 audio_np = np.frombuffer(data, dtype=np.int16)
+                sd.play(audio_np, sample_rate, blocksize=blocksize)
             else:
-                audio_np = np.array(data, dtype=np.int16)
-
-            # Ensure 1D array
-            if audio_np.ndim > 1:
-                audio_np = audio_np.flatten()
-
-            # Create and start output stream
-            self.output_stream = sd.OutputStream(
-                samplerate=sample_rate,
-                channels=1,
-                dtype='int16',
-                finished_callback=finished_callback
-            )
-            self.output_stream.start()
-            self.output_stream.write(audio_np)
-
+                sd.play(data, sample_rate, blocksize=blocksize)
         except Exception as e:
             logger.error("❌ Audio playback error: %s", e)
 
     def stop_playing(self):
         """Stops playback if active"""
         try:
-            if self.output_stream and self.output_stream.active:
-                self.output_stream.stop()
-                self.output_stream.close()
-                self.output_stream = None
+            sd.stop()
         except Exception as e:
             logger.warning("⚠️  Error stopping playback: %s", e)
+
+    def is_playing(self):
+        """Check if audio is currently playing"""
+        try:
+            return sd.get_stream().active
+        except:
+            return False
 
 
 # Global audio manager instance

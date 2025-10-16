@@ -108,25 +108,21 @@ class ConversationSession:
             await asyncio.sleep(0.01)
 
     def _play_response(self):
-        """Play collected audio response with completion callback"""
+        """Play collected audio response and monitor completion"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
+            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
-            # Get event loop for thread-safe callback
-            loop = asyncio.get_running_loop()
-
-            def on_playback_finished():
-                """Called when playback finishes (runs in portaudio thread)"""
+            # Monitor completion via polling (no worker thread = no thread affinity issues)
+            async def monitor_completion():
+                while AUDIO.is_playing():
+                    await asyncio.sleep(0.1)  # Poll every 100ms
                 if self.display:
-                    loop.call_soon_threadsafe(self.display.set_speaking, False)
-                loop.call_soon_threadsafe(logger.info, "🔊 Response playback finished")
+                    self.display.set_speaking(False)
+                logger.info("🔊 Response playback finished")
 
-            AUDIO.start_playing(
-                combined_audio,
-                CONFIG['openai']['sample_rate'],
-                finished_callback=on_playback_finished
-            )
+            asyncio.create_task(monitor_completion())
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
