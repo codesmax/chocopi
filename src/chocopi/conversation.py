@@ -107,22 +107,27 @@ class ConversationSession:
             # Yield to event loop
             await asyncio.sleep(0.01)
 
-    def _play_response(self):
-        """Play collected audio response and monitor completion"""
+    async def _play_response(self):
+        """Play collected audio response and optionally wait for completion"""
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
             AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
 
-            # Monitor completion via polling (no worker thread = no thread affinity issues)
-            async def monitor_completion():
+            async def playback_completion():
                 while AUDIO.is_playing():
                     await asyncio.sleep(0.1)  # Poll every 100ms
                 if self.display:
                     self.display.set_speaking(False)
                 logger.info("🔊 Response playback finished")
 
-            asyncio.create_task(monitor_completion())
+            # For greeting/goodbye, wait for completion before continuing
+            # This prevents starting to listen during greeting and exiting before goodbye finishes
+            if self.is_greeting or self.is_terminating:
+                await playback_completion()
+            else:
+                # For normal conversation, monitor in background
+                asyncio.create_task(playback_completion())
 
     def _is_sleep_word(self, text, threshold=85):
         """Check if text contains a sleep word using fuzzy matching"""
@@ -173,10 +178,13 @@ class ConversationSession:
                 # Check for sleep words using fuzzy matching
                 if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
                     logger.info("💤 Sleep word detected: '%s'", transcript)
-
-                    # Prepare to terminate session
                     self.is_terminating = True
-                    AUDIO.stop_recording()
+
+                    # If goodbye response already played (chunks are empty), exit now
+                    if not self.response_chunks:
+                        logger.debug("👋 Goodbye already played, terminating")
+                        AUDIO.stop_recording()
+                        return Result.GOODBYE
 
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
@@ -191,15 +199,23 @@ class ConversationSession:
                     self.display.add_transcript("choco", transcript)
 
             case "response.done":
+                logger.debug("🔊 Received Choco's response")
                 if self.display:
+                    logger.debug("👾 Enabling speaking animation")
                     self.display.set_speaking(True)
 
-                self._play_response()
+                logger.debug("🔊 Playing response")
+                await self._play_response()
+                logger.debug("🔊 Clearing response chunks")
                 self.response_chunks.clear()
+                logger.debug("🔊 Response chunks cleared")
 
                 if self.is_greeting:
+                    logger.debug("👋 Greeting complete")
                     return Result.GREETED
                 if self.is_terminating:
+                    logger.debug("👋 Terminating conversation")
+                    AUDIO.stop_recording()
                     return Result.GOODBYE
 
             case "error":
@@ -235,6 +251,7 @@ class ConversationSession:
 
                     # Handle exit conditions
                     if result in {Result.GOODBYE, Result.ERROR}:
+                        logger.debug("👋 Conversation ended")
                         self.is_active = False
                         break
 
