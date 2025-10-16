@@ -51,7 +51,8 @@ class WakeWordDetector:
                 sample_rate=self.config['sample_rate'],
                 dtype='int16',
                 blocksize=blocksize,
-                callback=audio_callback
+                callback=audio_callback,
+                input_gain=self.config['input_gain']
             )
 
             while True:
