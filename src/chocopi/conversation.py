@@ -162,7 +162,7 @@ class ConversationSession:
                 logger.info("🔊 VAD: user speech started")
 
                 # User is speaking; interrupt any ongoing response
-                await AUDIO.stop_playing()
+                AUDIO.stop_playing()
                 self.response_chunks.clear()
 
                 # Stop speaking animation when interrupted
