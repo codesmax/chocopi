@@ -37,7 +37,7 @@ class AudioManager:
 
                 callback(processed, frames, time, status)
             else:
-                callback(indata, frames, time, status)
+                callback(indata.copy(), frames, time, status)
 
         self.input_stream = sd.InputStream(
             samplerate=sample_rate,

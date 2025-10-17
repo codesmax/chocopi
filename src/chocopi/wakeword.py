@@ -29,7 +29,7 @@ class WakeWordDetector:
         self.model = Model(
             inference_framework=self.framework,
             wakeword_models=self.model_paths,
-            vad_threshold=self.config['vad_threshold'],
+            #vad_threshold=self.config['vad_threshold'],
         )
 
     async def listen(self):
