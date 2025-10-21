@@ -10,7 +10,7 @@ languages:
     language_name: "Korean (ko-KR)"
     model: "anyeong-choco"
     wake_word: "안녕 초코"
-    sleep_word: "바이바이 초코"
+    sleep_word: "안녕 초코"
     comprehension_age: 2
   es:
     language_name: "Mexican Spanish (es-MX)"
@@ -34,7 +34,7 @@ languages:
 session:
   greeting_timeout: 5
   conversation_timeout: 90
-  sleep_word_threshold: 85
+  sleep_word_threshold: 80
 
 display:
   width: 800
@@ -65,7 +65,7 @@ sounds:
 
 openwakeword:
   threshold: 0.3
-  vad_threshold: 0.3
+  vad_threshold: 0.2
   sample_rate: 16000
   chunk_duration_ms: 80  # multiples of 80ms recommended
   input_gain: 2.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
@@ -74,7 +74,7 @@ openai:
   model: "gpt-4o-mini-realtime-preview"
   sample_rate: 24000
   chunk_duration_ms: 40
-  input_gain: 1.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
+  input_gain: 1.5  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
   session_config:
     type: "session.update"
     session:
@@ -105,9 +105,7 @@ openai:
             - type: "input_text"
               text: "Greet the user with up to 5 words (e.g., 'Hi! What's up?' or 'Hello! How's it going?'). Keep it brief."
   transcription_prompt: >
-    - Expect user speech in {native_language} or {learning_language}.
-    - Default transcription to {native_language} if speech is not clear.
-    - Listen for sleep word, '`{sleep_word}`' in {learning_language} to end the conversation. IMPORTANT: transcribe the sleep word exactly as spoken; do not translate it.
+    - Expect casual speech from a child in {native_language} and {learning_language}.
   session_instructions: >
     # Role & Objective
     - You are Choco, a friendly and playful {learning_language} tutor for native {native_language} speakers.

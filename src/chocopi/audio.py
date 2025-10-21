@@ -6,6 +6,9 @@ import sounddevice as sd
 import soundfile as sf
 from chocopi.config import CONFIG, SOUNDS_PATH
 
+INT16_MIN = np.iinfo(np.int16).min
+INT16_MAX = np.iinfo(np.int16).max
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,13 +34,13 @@ class AudioManager:
                 # Handle clipping
                 if dtype == 'int16':
                     max_val = np.max(np.abs(processed))
-                    if max_val > 32767:
+                    if max_val > INT16_MAX:
                         logger.debug("🔇 Input clipping detected (max: %.0f)", max_val)
-                    processed = np.clip(processed, -32768, 32767).astype(np.int16)
+                    processed = np.clip(processed, INT16_MIN, INT16_MAX).astype(np.int16)
 
                 callback(processed, frames, time, status)
             else:
-                callback(indata, frames, time, status)
+                callback(indata.copy(), frames, time, status)
 
         self.input_stream = sd.InputStream(
             samplerate=sample_rate,

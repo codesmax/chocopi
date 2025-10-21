@@ -41,17 +41,23 @@ class WakeWordDetector:
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
         audio_queue = queue.Queue()
 
-        def audio_callback(indata, *_):
-            audio_queue.put(indata.copy())
-
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
+
+            def audio_callback(indata, _frames, _time, status):
+                if status:
+                    logger.warning("⚠️  Audio device status: %s", status)
+                try:
+                    self.audio_queue.put_nowait(indata)
+                except asyncio.QueueFull:
+                    # Drop frame if uploads fall behind
+                    pass
 
             AUDIO.start_recording(
                 sample_rate=self.config['sample_rate'],
                 dtype='int16',
                 blocksize=blocksize,
-                callback=audio_callback,
+                callback=lambda indata, *_: audio_queue.put_nowait(indata),
                 input_gain=self.config['input_gain']
             )
 
@@ -61,15 +67,14 @@ class WakeWordDetector:
                     chunk = audio_queue.get(timeout=0.01)
                     chunk_flat = chunk[:, 0].flatten() # mono channel
                     prediction = self.model.predict(chunk_flat)
-                    for wake_word, score in prediction.items():
-                        if score > self.config['threshold']:
-                            logger.info("⏰ Wake word activated: %s (score: %.2f)", wake_word, score)
-                            logger.debug("Prediction items: %s", prediction.items())
-                            AUDIO.stop_recording()
-                            return wake_word
-                        else:
-                            if score > 0.01:
-                                logger.debug("🔍 Wake word detected: %s (score: %.2f)", wake_word, score)
+                    wake_word, score = max(prediction.items(), key=lambda x: x[1])
+                    if score > self.config['threshold']:
+                        logger.info("⏰ Wake word activated: %s (score: %.2f)", wake_word, score)
+                        logger.debug("Prediction items: %s", prediction.items())
+                        AUDIO.stop_recording()
+                        return wake_word
+                    elif score > 0.01:
+                        logger.debug("🔍 Wake word detected: %s (score: %.2f)", wake_word, score)
                 except queue.Empty:
                     await asyncio.sleep(0.01)  # Yield to event loop
         except Exception as e:
