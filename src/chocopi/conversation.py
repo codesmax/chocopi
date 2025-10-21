@@ -139,7 +139,7 @@ class ConversationSession:
             return False
 
         filtered_text = re.sub(r'[,.!?]', '', text.strip().lower())
-        score = fuzz.ratio(sleep_word, filtered_text)
+        score = fuzz.partial_ratio(sleep_word, filtered_text)
         if score >= threshold:
             logger.debug("✅ Sleep word fuzzy matched: '%s' (score: %s)", sleep_word, score)
             return True
