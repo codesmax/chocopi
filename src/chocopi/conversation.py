@@ -78,19 +78,13 @@ class ConversationSession:
 
     def _listen(self):
         """Start audio capture with handler"""
-        def audio_callback(indata, _frames, _time, status):
-            if status:
-                logger.warning("⚠️  Audio device status: %s", status)
-            if self.is_active:
-                self.audio_queue.put(indata.astype(np.int16))
-
         blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
 
         AUDIO.start_recording(
             sample_rate=CONFIG['openai']['sample_rate'],
             dtype='int16',
             blocksize=blocksize,
-            callback=audio_callback,
+            callback=lambda indata, *_: self.audio_queue.put_nowait(indata),
             input_gain=CONFIG['openai']['input_gain']
         )
 
