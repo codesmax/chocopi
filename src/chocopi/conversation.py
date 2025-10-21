@@ -34,6 +34,7 @@ class ConversationSession:
         self.is_active = True
         self.is_greeting = True
         self.is_terminating = False
+        self.is_response_pending = False
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -124,6 +125,7 @@ class ConversationSession:
                     await asyncio.sleep(0.1)  # Poll every 100ms
                 if self.display:
                     self.display.set_speaking(False)
+                self.response_chunks.clear()
                 logger.info("🔊 Response playback finished")
 
             # For greeting + goodbye, await playback completion before continuing
@@ -132,7 +134,7 @@ class ConversationSession:
             else:
                 asyncio.create_task(playback_completion())
 
-    def _is_sleep_word(self, text, threshold=85):
+    def _is_sleep_word(self, text, threshold=80):
         """Check if text contains a sleep word using fuzzy matching"""
         sleep_word = self.lang_config['sleep_word'].lower()
         if not text or not sleep_word:
@@ -155,12 +157,14 @@ class ConversationSession:
             logger.debug("💬 Received message: %s", event_type)
 
         match event_type:
+            case "response.created":
+                self.is_response_pending = True
+
             case "input_audio_buffer.speech_started":
                 logger.info("🔊 VAD: user speech started")
 
                 # User is speaking; interrupt any ongoing response
                 AUDIO.stop_playing()
-                self.response_chunks.clear()
 
                 # Stop speaking animation when interrupted
                 if self.display:
@@ -184,8 +188,8 @@ class ConversationSession:
                     self.is_terminating = True
 
                     # Goodbye response already played; terminate session
-                    if not self.response_chunks:
-                        logger.debug("👋 Goodbye already played, terminating")
+                    if not self.is_response_pending:
+                        logger.debug("👋 Goodbye response already played, terminating")
                         AUDIO.stop_recording()
                         return Result.GOODBYE
 
@@ -202,11 +206,12 @@ class ConversationSession:
                     self.display.add_transcript("choco", transcript)
 
             case "response.done":
+                self.is_response_pending = False
+
                 if self.display:
                     self.display.set_speaking(True)
 
                 await self._play_response()
-                self.response_chunks.clear()
 
                 if self.is_greeting:
                     return Result.GREETED
