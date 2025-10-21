@@ -194,7 +194,7 @@ class DisplayManager:
         # Newest messages at bottom
         y = self.screen_height - self.transcript_margin
         line_height = self.config['font_size'] + self.config['line_spacing']
-        for idx, (speaker, text) in enumerate(reversed(transcripts_copy)):
+        for idx, (speaker, wrapped_lines) in enumerate(reversed(transcripts_copy)):
             # Most recent transcript uses active color
             if idx == 0:
                 color = active_color
@@ -202,13 +202,6 @@ class DisplayManager:
                 color = user_color
             else:
                 color = choco_color
-
-            # Prefix based on speaker
-            prefix = "You: " if speaker == "user" else "Choco: "
-
-            # Word wrap text to fit transcript width minus margins
-            max_width = self.transcript_width - (self.transcript_margin * 2)
-            wrapped_lines = self._wrap_text(prefix + text, max_width)
 
             # Render lines from bottom up
             for line in reversed(wrapped_lines):
@@ -236,9 +229,26 @@ class DisplayManager:
             if test_surface.get_width() <= max_width:
                 current_line.append(word)
             else:
+                # If current line has content, save it
                 if current_line:
                     lines.append(' '.join(current_line))
-                current_line = [word]
+                    current_line = []
+
+                # If single word is too wide, break it character-by-character
+                if self.font.render(word, True, (255, 255, 255)).get_width() > max_width:
+                    char_line = ""
+                    for char in word:
+                        test_char = char_line + char
+                        if self.font.render(test_char, True, (255, 255, 255)).get_width() <= max_width:
+                            char_line += char
+                        else:
+                            if char_line:
+                                lines.append(char_line)
+                            char_line = char
+                    if char_line:
+                        current_line = [char_line]
+                else:
+                    current_line = [word]
 
         if current_line:
             lines.append(' '.join(current_line))
@@ -328,7 +338,15 @@ class DisplayManager:
         with self.lock:
             # Replace newlines with spaces for proper rendering
             filtered_text = text.replace('\n', ' ').replace('\r', ' ')
-            self.transcripts.append((speaker, filtered_text))
+
+            # Prefix based on speaker
+            prefix = "You: " if speaker == "user" else "Choco: "
+
+            # Add word wrapped text
+            max_width = self.transcript_width - (self.transcript_margin * 2)
+            wrapped_lines = self._wrap_text(prefix + filtered_text, max_width)
+            self.transcripts.append((speaker, wrapped_lines))
+
             # Limit to last 10 transcripts
             if len(self.transcripts) > 10:
                 self.transcripts.pop(0)

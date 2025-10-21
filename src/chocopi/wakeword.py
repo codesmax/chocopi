@@ -29,7 +29,7 @@ class WakeWordDetector:
         self.model = Model(
             inference_framework=self.framework,
             wakeword_models=self.model_paths,
-            #vad_threshold=self.config['vad_threshold'],
+            vad_threshold=self.config['vad_threshold'],
         )
 
     async def listen(self):
@@ -43,6 +43,15 @@ class WakeWordDetector:
 
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
+
+            def audio_callback(indata, _frames, _time, status):
+                if status:
+                    logger.warning("⚠️  Audio device status: %s", status)
+                try:
+                    self.audio_queue.put_nowait(indata)
+                except asyncio.QueueFull:
+                    # Drop frame if uploads fall behind
+                    pass
 
             AUDIO.start_recording(
                 sample_rate=self.config['sample_rate'],
