@@ -47,15 +47,30 @@ git clone https://github.com/codesmax/chocopi.git
 cd chocopi
 python -m venv .venv
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -r requirements.txt
+pip install -e .
 # Update .env file with your OpenAI API key
 ./chocopi
 ```
 
 ## Configuration
-- Add a `.env` with your OpenAI API key
-- Update `config.yml` to customize user, language, wake word, and API settings.
 
+### Basic Configuration
+- Add a `.env` with your OpenAI API key
+- Update `config.yml` to customize user, language, wake word, and API settings
+
+### Bluetooth Audio (Optional)
+
+For Bluetooth microphone and speaker support:
+
+**Pair your device**
+   ```bash
+   bluetoothctl
+   scan on
+   pair <MAC_ADDRESS>
+   trust <MAC_ADDRESS>
+   connect <MAC_ADDRESS>
+   exit
+   ```
 
 ## Service Management
 

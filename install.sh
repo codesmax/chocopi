@@ -23,12 +23,16 @@ fi
 # Install system dependencies
 echo "Installing system dependencies..."
 sudo apt update
-sudo apt install -y git python3 python3-pip python3-venv libportaudio2 libegl1 python3-pygame
+sudo apt install -y git python3 python3-pip python3-venv libportaudio2 libegl1 python3-pygame pipewire pipewire-audio pulseaudio-utils
 
 # Create chocopi user if it doesn't exist
 if ! id "chocopi" &>/dev/null; then
     echo "Creating chocopi user..."
-    sudo useradd -m -s /bin/bash -G audio chocopi
+    sudo useradd -m -s /bin/bash -G audio,video,render,bluetooth chocopi
+
+    # Enable linger to allow user services without login
+    echo "Enabling systemd linger for chocopi user..."
+    sudo loginctl enable-linger chocopi
 fi
 
 # Create application directory
@@ -55,9 +59,21 @@ sudo -u chocopi /opt/chocopi/.venv/bin/pip install -e /opt/chocopi
 # Make chocopi script executable
 sudo chmod +x /opt/chocopi/chocopi
 
+# Configure PipeWire/WirePlumber for Bluetooth audio
+echo "Configuring PipeWire for Bluetooth audio..."
+sudo -u chocopi mkdir -p /home/chocopi/.config/wireplumber/bluetooth.lua.d/
+sudo -u chocopi cp /opt/chocopi/install/wireplumber/51-bluetooth-headset.lua \
+    /home/chocopi/.config/wireplumber/bluetooth.lua.d/
+
+# Enable and start PipeWire services for chocopi user
+echo "Enabling PipeWire services for chocopi user..."
+CHOCOPI_UID=$(id -u chocopi)
+sudo -u chocopi XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user enable pipewire pipewire-pulse wireplumber
+sudo -u chocopi XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user start pipewire pipewire-pulse wireplumber
+
 # Install systemd service
 echo "Installing systemd service..."
-sudo cp /opt/chocopi/chocopi.service /etc/systemd/system/
+sudo cp /opt/chocopi/install/systemd/chocopi.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable chocopi
 
@@ -96,3 +112,5 @@ echo
 echo "Useful commands:"
 echo "  sudo systemctl status chocopi   # Check status"
 echo "  sudo journalctl -u chocopi -f   # View logs"
+echo
+echo "Note: See README.md for more detailed instructions including Bluetooth audio setup."
