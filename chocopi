@@ -2,6 +2,8 @@
 
 # Set default audio volume on Linux systems
 if [[ "$OSTYPE" == "linux-gnu"* ]] && command -v amixer > /dev/null 2>&1; then
+    export XDG_RUNTIME_DIR=/run/user/$(id -u)
+
     DEFAULT_INPUT_VOLUME=100%
     DEFAULT_OUTPUT_VOLUME=100%
     DEFAULT_INPUT=$(amixer scontrols | grep -i -E '(capture|mic|input)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
