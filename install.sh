@@ -20,6 +20,23 @@ if [[ -f /proc/cpuinfo ]] && grep -q "Raspberry Pi" /proc/cpuinfo; then
     fi
 fi
 
+# Show installation summary and confirm
+echo
+echo "This script will:"
+echo "  • Install system dependencies (pipewire, python3, etc.)"
+echo "  • Create 'chocopi' user with limited privileges"
+echo "  • Clone/update ChocoPi to /opt/chocopi"
+echo "  • Set up Python virtual environment and dependencies"
+echo "  • Configure PipeWire/WirePlumber for Bluetooth audio"
+echo "  • Install and enable systemd service"
+echo
+read -p "Continue with installation? [Y/n] " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
+    echo "Installation cancelled."
+    exit 0
+fi
+
 # Install system dependencies
 echo "Installing system dependencies..."
 sudo apt update

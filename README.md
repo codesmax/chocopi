@@ -22,6 +22,11 @@ Built with a focus on simplicity, privacy, and configurability.
 - Microphone and speaker
 - OpenAI API key
 - Python 3.10+
+- Raspberry Pi OS Lite 64-bit (Bookworm)
+
+### Platform Notes
+
+**NOTE:** Only the previous Bookworm (Debian 12) release is supported on the Raspberry Pi due to dependency requirements.
 
 ### Raspberry Pi Setup
 
