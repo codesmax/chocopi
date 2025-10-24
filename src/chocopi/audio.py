@@ -2,6 +2,7 @@
 import os
 import logging
 import numpy as np
+import simpleaudio as sa
 import sounddevice as sd
 import soundfile as sf
 from chocopi.config import CONFIG, SOUNDS_PATH
@@ -17,6 +18,7 @@ class AudioManager:
 
     def __init__(self):
         self.input_stream = None
+        self.play_obj = None
 
     def start_recording(self, sample_rate, dtype, blocksize, callback, input_gain=1.0):
         """Start recording"""
@@ -61,30 +63,36 @@ class AudioManager:
     def start_playing(self, data, sample_rate=24000, blocksize=4096):
         """Play audio file or data (non-blocking)"""
         try:
-            # Convert data to numpy array
             if isinstance(data, str):
+                # Play audio file directly
                 path = data if data.startswith('/') else os.path.join(SOUNDS_PATH, data)
-                file_data, fs = sf.read(path)
-                sd.play(file_data, fs, blocksize=blocksize)
-            elif isinstance(data, bytes):
-                audio_np = np.frombuffer(data, dtype=np.int16)
-                sd.play(audio_np, sample_rate, blocksize=blocksize)
+                wave_obj = sa.WaveObject.from_wave_file(path)
+                self.play_obj = wave_obj.play()
             else:
-                sd.play(data, sample_rate, blocksize=blocksize)
+                # Play numpy array (from bytes or direct array)
+                audio_np = np.frombuffer(data, dtype=np.int16) if isinstance(data, bytes) else data
+                self.play_obj = sa.play_buffer(
+                    audio_np,
+                    num_channels=1,
+                    bytes_per_sample=2,
+                    sample_rate=int(sample_rate)
+                )
         except Exception as e:
             logger.error("❌ Audio playback error: %s", e)
 
     def stop_playing(self):
         """Stops playback if active"""
         try:
-            sd.stop()
+            if self.play_obj and self.play_obj.is_playing():
+                self.play_obj.stop()
+            self.play_obj = None
         except Exception as e:
             logger.warning("⚠️  Error stopping playback: %s", e)
 
     def is_playing(self):
         """Check if audio is currently playing"""
         try:
-            return sd.get_stream().active
+            return self.play_obj is not None and self.play_obj.is_playing()
         except:
             return False
 
