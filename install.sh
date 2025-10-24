@@ -40,7 +40,7 @@ fi
 # Install system dependencies
 echo "Installing system dependencies..."
 sudo apt update
-sudo apt install -y git python3 python3-pip python3-venv libportaudio2 libegl1 python3-pygame pipewire pipewire-audio pulseaudio-utils
+sudo apt install -y git python3 python3-pip python3-venv libportaudio2 libasound2-dev libegl1 python3-pygame pipewire pipewire-audio pulseaudio-utils
 
 # Create chocopi user if it doesn't exist
 if ! id "chocopi" &>/dev/null; then
