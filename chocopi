@@ -1,40 +1,54 @@
 #!/usr/bin/env bash
 
-# Configure audio on Linux systems
-if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
-
-    # Wait for PipeWire to be ready
-    if command -v pactl > /dev/null 2>&1; then
-        timeout 5 bash -c 'until pactl info &>/dev/null; do sleep 0.2; done' || echo "⚠️  PipeWire not ready, skipping volume setup"
-    fi
-
-    DEFAULT_INPUT_VOLUME=100%
-    DEFAULT_OUTPUT_VOLUME=100%
-    DEFAULT_INPUT=$(amixer scontrols 2>/dev/null | grep -i -E '(capture|mic|input)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
-    DEFAULT_OUTPUT=$(amixer scontrols 2>/dev/null | grep -i -E '(master|speaker|headphone|pcm|playback)' | head -1 | sed "s/.*'\([^']*\)'.*/\1/")
-
-    echo "🎛️  Setting audio volume..."
-    if [ -n "$DEFAULT_INPUT" ]; then
-        amixer sset "$DEFAULT_INPUT" $DEFAULT_INPUT_VOLUME unmute > /dev/null 2>&1 && \
-        echo "✅ Set input volume: $DEFAULT_INPUT → $DEFAULT_INPUT_VOLUME" || \
-        echo "⚠️  Failed to set input volume"
-    else
-        echo "⚠️  Unable to determine default input control"
-    fi
-
-    if [ -n "$DEFAULT_OUTPUT" ]; then
-        amixer sset "$DEFAULT_OUTPUT" $DEFAULT_OUTPUT_VOLUME unmute > /dev/null 2>&1 && \
-        echo "✅ Set output volume: $DEFAULT_OUTPUT → $DEFAULT_OUTPUT_VOLUME" || \
-        echo "⚠️  Failed to set output volume"
-    else
-        echo "⚠️  Unable to determine default output control"
-    fi
-fi
-
 export PYTHONUTF8=1                       # Force UTF-8 encoding
 export CHOCO_DISPLAY=${CHOCO_DISPLAY:-1}  # Enable display, default to 1 if unset
 export CHOCO_LOG=${CHOCO_LOG:-INFO}       # Set log level, default to INFO if unset
+
+# Configure audio on Linux systems
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Set XDG_RUNTIME_DIR for PipeWire audio
+    export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
+
+    # Prefer DSI display device for KMSDRM when available
+    if [[ ! -v SDL_KMSDRM_DEVICE_INDEX ]]; then
+        # Find connected DSI display
+        for status in /sys/class/drm/card*-DSI-*/status; do
+            if [[ -f "$status" ]] && [[ "$(cat "$status")" == "connected" ]]; then
+                CARD_INDEX=$(echo "$status" | grep -oP 'card\K[0-9]+')
+                export SDL_KMSDRM_DEVICE_INDEX="$CARD_INDEX"
+                break
+            fi
+        done
+    fi
+
+    # Wait for WirePlumber and default devices to be ready
+    if command -v wpctl > /dev/null 2>&1; then
+        AUDIO_READY=false
+        for i in {1..25}; do  # 5 seconds max
+            if wpctl inspect @DEFAULT_SINK@ &>/dev/null && wpctl inspect @DEFAULT_SOURCE@ &>/dev/null; then
+                AUDIO_READY=true
+                break
+            fi
+            sleep 0.2
+        done
+
+        if [ "$AUDIO_READY" = "true" ]; then
+            DEFAULT_INPUT_VOLUME=100%
+            DEFAULT_OUTPUT_VOLUME=100%
+
+            echo "🎛️  Setting audio volume..."
+            wpctl set-volume @DEFAULT_SINK@ $DEFAULT_OUTPUT_VOLUME && \
+            echo "✅ Set output volume: $DEFAULT_OUTPUT_VOLUME" || \
+            echo "⚠️  Failed to set output volume"
+
+            wpctl set-volume @DEFAULT_SOURCE@ $DEFAULT_INPUT_VOLUME && \
+            echo "✅ Set input volume: $DEFAULT_INPUT_VOLUME" || \
+            echo "⚠️  Failed to set input volume"
+        else
+            echo "⚠️  Audio system not ready, skipping volume setup"
+        fi
+    fi
+fi
 
 SCRIPTPATH=$(dirname $0)
 source $SCRIPTPATH/.venv/bin/activate
