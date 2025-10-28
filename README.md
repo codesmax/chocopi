@@ -26,7 +26,10 @@ Built with a focus on simplicity, privacy, and configurability.
 
 ### Platform Notes
 
-**NOTE:** Only the previous Bookworm (Debian 12) release is supported on the Raspberry Pi due to dependency requirements.
+**Raspberry Pi OS Version:**
+- **Bookworm (Debian 12)** and **Trixie (Debian 13)** are both supported
+- The installer uses [uv](https://docs.astral.sh/uv/) to manage Python 3.11 in a virtual environment
+- On Trixie (Python 3.13), uv automatically downloads Python 3.11 for compatibility with dependencies
 
 ### Raspberry Pi Setup
 
@@ -50,9 +53,16 @@ Built with a focus on simplicity, privacy, and configurability.
 ```bash
 git clone https://github.com/codesmax/chocopi.git
 cd chocopi
-python -m venv .venv
+
+# Install uv if not already installed
+pipx install uv
+
+# Create venv with Python 3.11 and install dependencies
+uv venv .venv --python 3.11
+uv pip install -e . --python .venv/bin/python
+
+# Activate and run
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -e .
 # Update .env file with your OpenAI API key
 ./chocopi
 ```

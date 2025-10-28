@@ -40,7 +40,7 @@ fi
 # Install system dependencies
 echo "Installing system dependencies..."
 sudo apt update
-sudo apt install -y git python3 python3-pip python3-venv libportaudio2 libasound2-dev libegl1 python3-pygame pipewire pipewire-audio pulseaudio-utils
+sudo apt install -y git pipx libportaudio2 libasound2-dev libegl1 pipewire pipewire-audio pulseaudio-utils
 
 # Create chocopi user if it doesn't exist
 if ! id "chocopi" &>/dev/null; then
@@ -68,10 +68,17 @@ else
     sudo -u chocopi git -C /opt/chocopi pull
 fi
 
-# Create virtual environment and install Python dependencies
-echo "Setting up Python environment..."
-sudo -u chocopi python3 -m venv /opt/chocopi/.venv
-sudo -u chocopi /opt/chocopi/.venv/bin/pip install -e /opt/chocopi
+# Install uv for Python version management
+if ! command -v uv &> /dev/null; then
+    echo "Installing uv..."
+    pipx install uv
+    pipx ensurepath
+fi
+
+# Create virtual environment with Python 3.11 and install dependencies
+echo "Setting up Python 3.11 environment with uv..."
+sudo -u chocopi uv venv /opt/chocopi/.venv --python 3.11
+sudo -u chocopi uv pip install -e /opt/chocopi --python /opt/chocopi/.venv/bin/python
 
 # Make chocopi script executable
 sudo chmod +x /opt/chocopi/chocopi
