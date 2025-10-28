@@ -79,7 +79,7 @@ sudo chmod +x /opt/chocopi/chocopi
 # Configure PipeWire/WirePlumber for Bluetooth audio
 echo "Configuring PipeWire for Bluetooth audio..."
 sudo -u chocopi mkdir -p /home/chocopi/.config/wireplumber/bluetooth.lua.d/
-sudo -u chocopi cp /opt/chocopi/install/wireplumber/51-bluetooth-headset.lua \
+sudo -u chocopi cp /opt/chocopi/install/wireplumber/51-bluetooth-audio.lua \
     /home/chocopi/.config/wireplumber/bluetooth.lua.d/
 
 # Enable and start PipeWire services for chocopi user

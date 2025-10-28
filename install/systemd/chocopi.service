@@ -1,6 +1,7 @@
 [Unit]
 Description=Choco Voice Assistant
-After=network.target sound.target
+After=network.target bluetooth.service
+After=pipewire.service pipewire-pulse.service wireplumber.service
 Wants=network.target
 
 [Service]
@@ -15,9 +16,6 @@ Restart=always
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
-
-# Audio permissions
-SupplementaryGroups=audio
 
 [Install]
 WantedBy=multi-user.target
