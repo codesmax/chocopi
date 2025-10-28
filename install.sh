@@ -68,17 +68,15 @@ else
     sudo -u chocopi git -C /opt/chocopi pull
 fi
 
-# Install uv for Python version management
-if ! command -v uv &> /dev/null; then
-    echo "Installing uv..."
-    pipx install uv
-    pipx ensurepath
-fi
+# Install uv for chocopi user
+echo "Installing uv for chocopi user..."
+sudo -u chocopi pipx install uv
+sudo -u chocopi pipx ensurepath
 
 # Create virtual environment with Python 3.11 and install dependencies
 echo "Setting up Python 3.11 environment with uv..."
-sudo -u chocopi uv venv /opt/chocopi/.venv --python 3.11
-sudo -u chocopi uv pip install -e /opt/chocopi --python /opt/chocopi/.venv/bin/python
+sudo -u chocopi /home/chocopi/.local/bin/uv venv /opt/chocopi/.venv --python 3.11
+sudo -u chocopi /home/chocopi/.local/bin/uv pip install -e /opt/chocopi --python /opt/chocopi/.venv/bin/python
 
 # Make chocopi script executable
 sudo chmod +x /opt/chocopi/chocopi
