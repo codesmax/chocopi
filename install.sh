@@ -75,8 +75,9 @@ sudo -u chocopi pipx ensurepath
 
 # Create virtual environment with Python 3.11 and install dependencies
 echo "Setting up Python 3.11 environment with uv..."
-sudo -u chocopi /home/chocopi/.local/bin/uv venv /opt/chocopi/.venv --python 3.11
-sudo -u chocopi /home/chocopi/.local/bin/uv pip install -e /opt/chocopi --python /opt/chocopi/.venv/bin/python
+cd /opt/chocopi
+sudo -u chocopi /home/chocopi/.local/bin/uv venv .venv --python 3.11
+sudo -u chocopi /home/chocopi/.local/bin/uv pip install -e . --python .venv/bin/python
 
 # Make chocopi script executable
 sudo chmod +x /opt/chocopi/chocopi
