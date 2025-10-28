@@ -4,9 +4,9 @@
 if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 
-    # Wait for PipeWire audio system to be ready
-    if command -v amixer > /dev/null 2>&1; then
-        timeout 5 bash -c 'until amixer &>/dev/null; do sleep 0.2; done' || echo "⚠️  Audio backend not ready, skipping volume setup"
+    # Wait for PipeWire to be ready
+    if command -v pactl > /dev/null 2>&1; then
+        timeout 5 bash -c 'until pactl info &>/dev/null; do sleep 0.2; done' || echo "⚠️  PipeWire not ready, skipping volume setup"
     fi
 
     DEFAULT_INPUT_VOLUME=100%
