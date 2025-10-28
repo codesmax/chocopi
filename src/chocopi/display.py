@@ -355,10 +355,11 @@ class DisplayManager:
 def create_display_manager(config):
     """Factory function to create display manager if enabled"""
     if not USE_DISPLAY:
+        logger.info("🖥️  Display disabled, skipping display manager initialization")
         return None
 
     try:
         return DisplayManager(config)
     except Exception as e:
-        logger.error("⚠️  Failed to create display manager: %s", e)
+        logger.error("⚠️  Failed to initialize display manager: %s", e)
         return None
