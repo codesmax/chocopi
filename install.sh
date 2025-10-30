@@ -16,16 +16,15 @@ GITHUB_REPO="${GITHUB_REPO:-https://github.com/codesmax/chocopi.git}"
 BOLD='\033[1m'
 RESET='\033[0m'
 
-info() { echo -e "${BOLD}[>]${RESET} ${BOLD}$1${RESET}"; }
-success() { echo -e "${BOLD}[+]${RESET} $1"; }
-error() { echo -e "${BOLD}[!]${RESET} $1" >&2; }
-warn() { echo -e "${BOLD}[*]${RESET} $1"; }
+info() { echo -e "${BOLD}[⚙️]${RESET} ${BOLD}$1${RESET}"; }
+success() { echo -e "${BOLD}[✨]${RESET} $1\n"; }
+warn() { echo -e "${BOLD}[⚠️]${RESET} $1"; }
+error() { echo -e "${BOLD}[❌]${RESET} $1" >&2; }
 
 # ============================================================================
 # Installation
 # ============================================================================
-info "Installing ChocoPi Voice Assistant..."
-echo
+info "Installing ChocoPi Language Tutor..."
 
 # Platform checks
 if [[ ! -f /etc/debian_version ]]; then
@@ -114,43 +113,32 @@ success "Python environment configured"
 # Make chocopi script executable
 sudo chmod +x "${CHOCOPI_INSTALL_DIR}/chocopi"
 
-# Prompt for Bluetooth configuration
-echo
-echo "─────────────────────────────────────────────────────────"
-read -p "Configure Bluetooth audio? [Y/n] " -n 1 -r
-echo
-echo "─────────────────────────────────────────────────────────"
+# Configure PipeWire/WirePlumber for Bluetooth audio
+info "Configuring PipeWire/WirePlumber for Bluetooth audio..."
 
-BT_CONFIG=false
-if [[ ! $REPLY =~ ^[Nn]$ ]]; then
-    BT_CONFIG=true
-    # Configure PipeWire/WirePlumber for Bluetooth audio
-    info "Configuring PipeWire/WirePlumber for Bluetooth audio..."
+# Detect WirePlumber version to determine config format
+WP_VERSION=$(dpkg-query -W -f='${Version}' wireplumber 2>/dev/null | grep -oP '^\d+\.\d+' || echo "0.5")
+WP_MAJOR=$(echo "$WP_VERSION" | cut -d. -f1)
+WP_MINOR=$(echo "$WP_VERSION" | cut -d. -f2)
 
-    # Detect WirePlumber version to determine config format
-    WP_VERSION=$(dpkg-query -W -f='${Version}' wireplumber 2>/dev/null | grep -oP '^\d+\.\d+' || echo "0.5")
-    WP_MAJOR=$(echo "$WP_VERSION" | cut -d. -f1)
-    WP_MINOR=$(echo "$WP_VERSION" | cut -d. -f2)
+if [[ "$WP_MAJOR" -eq 0 ]] && [[ "$WP_MINOR" -lt 5 ]]; then
+    # WirePlumber 0.4.x uses Lua format
+    info "Detected WirePlumber ${WP_VERSION} (using Lua config format)"
+    WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/bluetooth.lua.d"
+    WP_CONFIG_FILE="51-bluetooth-audio.lua"
+else
+    # WirePlumber 0.5.x+ uses conf format
+    info "Detected WirePlumber ${WP_VERSION} (using conf format)"
+    WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/wireplumber.conf.d"
+    WP_CONFIG_FILE="51-bluetooth-audio.conf"
+fi
 
-    if [[ "$WP_MAJOR" -eq 0 ]] && [[ "$WP_MINOR" -lt 5 ]]; then
-        # WirePlumber 0.4.x uses Lua format
-        info "Detected WirePlumber ${WP_VERSION} (using Lua config format)"
-        WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/bluetooth.lua.d"
-        WP_CONFIG_FILE="51-bluetooth-audio.lua"
-    else
-        # WirePlumber 0.5.x+ uses conf format
-        info "Detected WirePlumber ${WP_VERSION} (using conf format)"
-        WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/wireplumber.conf.d"
-        WP_CONFIG_FILE="51-bluetooth-audio.conf"
-    fi
-
-    # Install appropriate WirePlumber config file
-    if [[ -f "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" ]]; then
-        sudo -u "${CHOCOPI_USER}" mkdir -p "${WP_CONFIG_DIR}"
-        sudo -u "${CHOCOPI_USER}" cp "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" \
-            "${WP_CONFIG_DIR}/"
-        success "WirePlumber Bluetooth config installed"
-    fi
+# Install appropriate WirePlumber config file
+if [[ -f "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" ]]; then
+    sudo -u "${CHOCOPI_USER}" mkdir -p "${WP_CONFIG_DIR}"
+    sudo -u "${CHOCOPI_USER}" cp "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" \
+        "${WP_CONFIG_DIR}/"
+    success "WirePlumber Bluetooth config installed"
 fi
 
 # Enable and start PipeWire services for chocopi user
@@ -168,10 +156,7 @@ sudo systemctl enable chocopi
 success "Systemd service installed and enabled"
 
 # Prompt for OpenAI API key
-echo
-echo "─────────────────────────────────────────────────────────"
-info "Configuration"
-echo "─────────────────────────────────────────────────────────"
+info "Configuring OpenAI API..."
 read -p "Enter your OpenAI API key (or press Enter to configure later): " API_KEY
 
 if [[ -n "$API_KEY" ]]; then
@@ -181,7 +166,6 @@ if [[ -n "$API_KEY" ]]; then
     sudo chmod 600 "${CHOCOPI_INSTALL_DIR}/.env"
     success ".env file created"
 
-    echo
     success "Installation and configuration complete!"
     info "Starting ChocoPi service..."
     sudo systemctl start chocopi
@@ -190,9 +174,7 @@ if [[ -n "$API_KEY" ]]; then
     info "Service status:"
     sudo systemctl status chocopi --no-pager -l
 else
-    echo
     success "Installation complete!"
-    echo
     info "To configure later, create ${CHOCOPI_INSTALL_DIR}/.env with:"
     echo "  echo 'OPENAI_API_KEY=your_key_here' | sudo tee ${CHOCOPI_INSTALL_DIR}/.env"
     echo "  sudo chown ${CHOCOPI_USER}:${CHOCOPI_USER} ${CHOCOPI_INSTALL_DIR}/.env"
@@ -206,18 +188,13 @@ echo
 info "Useful commands:"
 echo "  sudo systemctl status chocopi   # Check status"
 echo "  sudo journalctl -u chocopi -f   # View logs"
-
-# Show Bluetooth pairing instructions if configured
-if [[ "$BT_CONFIG" == "true" ]]; then
-    echo
-    info "To pair a Bluetooth audio device:"
-    echo "  bluetoothctl"
-    echo "  scan on"
-    echo "  pair <MAC_ADDRESS>"
-    echo "  trust <MAC_ADDRESS>"
-    echo "  connect <MAC_ADDRESS>"
-    echo "  exit"
-fi
-
 echo
-echo "Note: See README.md for more detailed setup and configuration instructions."
+info "To pair a Bluetooth audio device:"
+echo "  bluetoothctl"
+echo "  scan on"
+echo "  pair <MAC_ADDRESS>"
+echo "  trust <MAC_ADDRESS>"
+echo "  connect <MAC_ADDRESS>"
+echo "  exit"
+echo
+info "See README.md for more detailed setup and configuration instructions."

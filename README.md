@@ -5,14 +5,12 @@
 Smart speaker app for language education through conversation.
 Built with a focus on simplicity, privacy, and configurability.
 
-
 ## Features
 
 - English, Korean, Spanish and Chinese language support
 - Wake word detection on device
 - Voice conversation using OpenAI Realtime API
 - Built for Raspberry Pi; some support for other platforms
-
 
 ## Quick Start
 
