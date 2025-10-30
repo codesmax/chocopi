@@ -2,9 +2,7 @@
 -- Allows Bluetooth to work without a logged-in user session
 bluez_monitor.properties["with-logind"] = false
 
--- Prefer headset-head-unit profile for Bluetooth devices
--- This enables both microphone and speaker (HSP/HFP) instead of
--- the default of high-quality playback only (A2DP)
+-- Auto-connect to Bluetooth audio devices with headset-head-unit profile
 table.insert(bluez_monitor.rules, {
   matches = {
     {
@@ -12,6 +10,7 @@ table.insert(bluez_monitor.rules, {
     },
   },
   apply_properties = {
+    ["bluez5.auto-connect"]  = "[ hfp_hf hsp_hs a2dp_sink ]",
     ["device.profile"] = "headset-head-unit",
   },
 })
