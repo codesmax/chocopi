@@ -16,6 +16,7 @@ class WakeWordDetector:
 
     def __init__(self):
         self.config = CONFIG['openwakeword']
+        self.audio_queue = queue.Queue()
         self.framework = 'tflite' if IS_PI else 'onnx'
         self.model_paths = []
         for lang_config in CONFIG['languages'].values():
@@ -37,9 +38,7 @@ class WakeWordDetector:
 
         # Reset prediction and audio feature buffers
         self.model.reset()
-
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
-        audio_queue = queue.Queue()
 
         try:
             blocksize = int(self.config['sample_rate'] * self.config['chunk_duration_ms'] / 1000)
@@ -49,22 +48,23 @@ class WakeWordDetector:
                     logger.warning("⚠️  Audio device status: %s", status)
                 try:
                     self.audio_queue.put_nowait(indata)
-                except asyncio.QueueFull:
-                    # Drop frame if uploads fall behind
+                except queue.Full:
+                    # Drop frame if queue falls behind
+                    logger.warning("⚠️  Audio queue full, dropping frame")
                     pass
 
             AUDIO.start_recording(
                 sample_rate=self.config['sample_rate'],
                 dtype='int16',
                 blocksize=blocksize,
-                callback=lambda indata, *_: audio_queue.put_nowait(indata),
+                callback=audio_callback,
                 input_gain=self.config['input_gain']
             )
 
             while True:
                 # Poll queue with timeout to yield control
                 try:
-                    chunk = audio_queue.get(timeout=0.01)
+                    chunk = self.audio_queue.get(timeout=0.01)
                     chunk_flat = chunk[:, 0].flatten() # mono channel
                     prediction = self.model.predict(chunk_flat)
                     wake_word, score = max(prediction.items(), key=lambda x: x[1])

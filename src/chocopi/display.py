@@ -51,7 +51,10 @@ class DisplayManager:
     def _init_pygame(self):
         """Initialize pygame"""
         try:
-            pygame.init()
+            # Initialize required subsystems (no audio - conflicts with AudioManager)
+            pygame.display.init()
+            pygame.font.init()
+
             if driver := pygame.display.get_driver():
                 logger.info("🖥️  Display driver loaded: %s", driver)
             else:

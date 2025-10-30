@@ -25,7 +25,7 @@ def _has_display():
 # Environment
 IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
 LOG_LEVEL = os.environ.get('CHOCO_LOG', 'INFO').upper()
-USE_DISPLAY = bool(os.environ.get('CHOCO_DISPLAY')) and _has_display()
+USE_DISPLAY = os.environ.get('CHOCO_DISPLAY') == '1' and _has_display()
 
 # Configure logging
 logging.basicConfig(level=logging.WARNING)  # Silence third-party libraries

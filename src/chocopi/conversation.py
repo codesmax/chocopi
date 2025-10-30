@@ -87,8 +87,9 @@ class ConversationSession:
             if self.is_active:
                 try:
                     self.audio_queue.put_nowait(indata)
-                except asyncio.QueueFull:
+                except queue.Full:
                     # Drop frame if uploads fall behind
+                    logger.warning("⚠️  Audio queue full, dropping frame")
                     pass
 
         AUDIO.start_recording(
