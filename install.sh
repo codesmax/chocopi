@@ -16,10 +16,10 @@ GITHUB_REPO="${GITHUB_REPO:-https://github.com/codesmax/chocopi.git}"
 BOLD='\033[1m'
 RESET='\033[0m'
 
-info() { echo -e "${BOLD}[✨]${RESET} ${BOLD}$1${RESET}"; }
-success() { echo -e "${BOLD}[✔️ ]${RESET} $1\n"; }
-warn() { echo -e "${BOLD}[⚠️ ]${RESET} $1"; }
-error() { echo -e "${BOLD}[❌]${RESET} $1" >&2; }
+info() { echo -e "${BOLD}✨${RESET} ${BOLD}$1${RESET}"; }
+success() { echo -e "${BOLD}✔️ ${RESET} $1\n"; }
+warn() { echo -e "${BOLD}⚠️ ${RESET} $1"; }
+error() { echo -e "${BOLD}❌${RESET} $1" >&2; }
 
 # ============================================================================
 # Installation
