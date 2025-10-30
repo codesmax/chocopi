@@ -16,10 +16,12 @@ GITHUB_REPO="${GITHUB_REPO:-https://github.com/codesmax/chocopi.git}"
 BOLD='\033[1m'
 RESET='\033[0m'
 
-info() { echo -e "${BOLD}✨${RESET} ${BOLD}$1${RESET}"; }
-success() { echo -e "${BOLD}✔️ ${RESET} $1\n"; }
-warn() { echo -e "${BOLD}⚠️ ${RESET} $1"; }
-error() { echo -e "${BOLD}❌${RESET} $1" >&2; }
+log() { echo -e "${BOLD}$1${RESET}"; }
+info() { log "✨ $1"; }
+tip() { log "💡 $1"; }
+warn() { log "⚠️  $1"; }
+error() { log "❌ $1" >&2; }
+success() { echo -e "✔️  $1\n"; }
 
 # ============================================================================
 # Installation
@@ -120,12 +122,12 @@ WP_MINOR=$(echo "$WP_VERSION" | cut -d. -f2)
 
 if [[ "$WP_MAJOR" -eq 0 ]] && [[ "$WP_MINOR" -lt 5 ]]; then
     # WirePlumber 0.4.x uses Lua format
-    info "Detected WirePlumber ${WP_VERSION} (using Lua config format)"
+    log "🔎 Detected WirePlumber ${WP_VERSION} (using Lua config format)"
     WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/bluetooth.lua.d"
     WP_CONFIG_FILE="51-bluetooth-audio.lua"
 else
     # WirePlumber 0.5.x+ uses conf format
-    info "Detected WirePlumber ${WP_VERSION} (using conf format)"
+    log "🔎 Detected WirePlumber ${WP_VERSION} (using conf format)"
     WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/wireplumber.conf.d"
     WP_CONFIG_FILE="51-bluetooth-audio.conf"
 fi
@@ -163,7 +165,8 @@ if [[ -n "$API_KEY" ]]; then
     sudo chmod 600 "${CHOCOPI_INSTALL_DIR}/.env"
     success ".env file created"
 
-    success "Installation and configuration complete! 🎉"
+    log "🎉 Installation and configuration complete!"
+    echo
     info "Starting ChocoPi service..."
     sudo systemctl start chocopi
 
@@ -171,22 +174,23 @@ if [[ -n "$API_KEY" ]]; then
     info "Service status:"
     sudo systemctl status chocopi --no-pager -l
 else
-    success "Installation complete! 🎉"
-    info "To configure later, create ${CHOCOPI_INSTALL_DIR}/.env with:"
+    log "🎉 Installation complete!"
+    echo
+    tip "To configure later, create ${CHOCOPI_INSTALL_DIR}/.env with:"
     echo "  echo 'OPENAI_API_KEY=your_key_here' | sudo tee ${CHOCOPI_INSTALL_DIR}/.env"
     echo "  sudo chown ${CHOCOPI_USER}:${CHOCOPI_USER} ${CHOCOPI_INSTALL_DIR}/.env"
     echo "  sudo chmod 600 ${CHOCOPI_INSTALL_DIR}/.env"
     echo
-    info "Then start the service:"
+    tip "Then start the service:"
     echo "  sudo systemctl start chocopi"
 fi
 
 echo
-info "Useful commands:"
+tip "Helpful commands:"
 echo "  sudo systemctl status chocopi   # Check status"
 echo "  sudo journalctl -u chocopi -f   # View logs"
 echo
-info "To pair a Bluetooth audio device:"
+tip "To pair a Bluetooth audio device:"
 echo "  bluetoothctl"
 echo "  scan on"
 echo "  pair <MAC_ADDRESS>"
@@ -194,4 +198,4 @@ echo "  trust <MAC_ADDRESS>"
 echo "  connect <MAC_ADDRESS>"
 echo "  exit"
 echo
-info "See README.md for more detailed setup and configuration instructions."
+tip "See README.md for more detailed setup and configuration instructions."
