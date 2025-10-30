@@ -16,9 +16,9 @@ GITHUB_REPO="${GITHUB_REPO:-https://github.com/codesmax/chocopi.git}"
 BOLD='\033[1m'
 RESET='\033[0m'
 
-info() { echo -e "${BOLD}[⚙️]${RESET} ${BOLD}$1${RESET}"; }
-success() { echo -e "${BOLD}[✨]${RESET} $1\n"; }
-warn() { echo -e "${BOLD}[⚠️]${RESET} $1"; }
+info() { echo -e "${BOLD}[✨]${RESET} ${BOLD}$1${RESET}"; }
+success() { echo -e "${BOLD}[✔️ ]${RESET} $1\n"; }
+warn() { echo -e "${BOLD}[⚠️ ]${RESET} $1"; }
 error() { echo -e "${BOLD}[❌]${RESET} $1" >&2; }
 
 # ============================================================================
@@ -36,10 +36,7 @@ fi
 if [[ -f /proc/cpuinfo ]] && grep -q "Raspberry Pi" /proc/cpuinfo; then
     ARCH=$(uname -m)
     if [[ "$ARCH" != "aarch64" ]]; then
-        warn "Warning: Running on Raspberry Pi with $ARCH architecture"
-        warn "For best performance, use a 64-bit Raspberry Pi OS (aarch64)"
-        warn "Continuing in 5 seconds... (Ctrl+C to cancel)"
-        sleep 5
+        warn "Warning: Running on Raspberry Pi with '$ARCH' architecture. For best performance, use a 64-bit Raspberry Pi OS (aarch64)."
     fi
 fi
 
@@ -106,7 +103,7 @@ success "uv installed"
 # Create virtual environment with Python and install dependencies
 info "Setting up Python ${PYTHON_VERSION} environment with uv..."
 cd "${CHOCOPI_INSTALL_DIR}"
-sudo -u "${CHOCOPI_USER}" "${CHOCOPI_HOME}/.local/bin/uv" venv .venv --python "${PYTHON_VERSION}"
+sudo -u "${CHOCOPI_USER}" "${CHOCOPI_HOME}/.local/bin/uv" venv .venv --clear --python "${PYTHON_VERSION}"
 sudo -u "${CHOCOPI_USER}" "${CHOCOPI_HOME}/.local/bin/uv" pip install -e . --python .venv/bin/python
 success "Python environment configured"
 
@@ -166,7 +163,7 @@ if [[ -n "$API_KEY" ]]; then
     sudo chmod 600 "${CHOCOPI_INSTALL_DIR}/.env"
     success ".env file created"
 
-    success "Installation and configuration complete!"
+    success "Installation and configuration complete! 🎉"
     info "Starting ChocoPi service..."
     sudo systemctl start chocopi
 
@@ -174,7 +171,7 @@ if [[ -n "$API_KEY" ]]; then
     info "Service status:"
     sudo systemctl status chocopi --no-pager -l
 else
-    success "Installation complete!"
+    success "Installation complete! 🎉"
     info "To configure later, create ${CHOCOPI_INSTALL_DIR}/.env with:"
     echo "  echo 'OPENAI_API_KEY=your_key_here' | sudo tee ${CHOCOPI_INSTALL_DIR}/.env"
     echo "  sudo chown ${CHOCOPI_USER}:${CHOCOPI_USER} ${CHOCOPI_INSTALL_DIR}/.env"
