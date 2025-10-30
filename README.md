@@ -17,23 +17,15 @@ Built with a focus on simplicity, privacy, and configurability.
 ## Quick Start
 
 ### Requirements
-
-- Raspberry Pi 4+
 - Microphone and speaker
 - OpenAI API key
-- Python 3.10+
-- Raspberry Pi OS Lite 64-bit (Bookworm)
+- Python 3.11
 
-### Platform Notes
+### Raspberry Pi Automated Setup
 
-**Raspberry Pi OS Version:**
-- **Bookworm (Debian 12)** and **Trixie (Debian 13)** are both supported
-- The installer uses [uv](https://docs.astral.sh/uv/) to manage Python 3.11 in a virtual environment
-- On Trixie (Python 3.13), uv automatically downloads Python 3.11 for compatibility with dependencies
+**Tested on Raspberry Pi 4+ with 64-bit Raspberry Pi OS Lite (Trixie and Bookworm)**
 
-### Raspberry Pi Setup
-
-1. Flash Raspberry Pi OS with [rpi-imager](https://rpi.org/imager) (configure SSH, WiFi, user)
+1. Flash Raspberry Pi OS Lite (64-bit) with [rpi-imager](https://rpi.org/imager) (configure user, SSH, WiFi)
 2. SSH into your Pi and run:
 
    **One-liner:**
@@ -48,13 +40,13 @@ Built with a focus on simplicity, privacy, and configurability.
    ./install.sh
    ```
 
-### Development Setup
+### Linux/Mac/Windows Manual Setup
 
 ```bash
 git clone https://github.com/codesmax/chocopi.git
 cd chocopi
 
-# Install uv if not already installed
+# Install uv if needed
 pipx install uv
 
 # Create venv with Python 3.11 and install dependencies
@@ -63,6 +55,7 @@ uv pip install -e . --python .venv/bin/python
 
 # Activate and run
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+
 # Update .env file with your OpenAI API key
 ./chocopi
 ```

@@ -1,11 +1,35 @@
 #!/bin/bash
 set -e
 
-echo "Installing Choco Voice Assistant..."
+# ============================================================================
+# Configuration - customize if desired
+# ============================================================================
+CHOCOPI_USER="${CHOCOPI_USER:-chocopi}"
+CHOCOPI_HOME="/home/${CHOCOPI_USER}"
+CHOCOPI_INSTALL_DIR="${CHOCOPI_INSTALL_DIR:-/opt/chocopi}"
+PYTHON_VERSION="${PYTHON_VERSION:-3.11}"
+GITHUB_REPO="${GITHUB_REPO:-https://github.com/codesmax/chocopi.git}"
+
+# ============================================================================
+# Output formatting
+# ============================================================================
+BOLD='\033[1m'
+RESET='\033[0m'
+
+info() { echo -e "${BOLD}[>]${RESET} ${BOLD}$1${RESET}"; }
+success() { echo -e "${BOLD}[+]${RESET} $1"; }
+error() { echo -e "${BOLD}[!]${RESET} $1" >&2; }
+warn() { echo -e "${BOLD}[*]${RESET} $1"; }
+
+# ============================================================================
+# Installation
+# ============================================================================
+info "Installing ChocoPi Voice Assistant..."
+echo
 
 # Platform checks
 if [[ ! -f /etc/debian_version ]]; then
-    echo "Error: This installer requires a Debian-based Linux distribution"
+    error "Error: This installer requires a Debian-based Linux distribution"
     exit 1
 fi
 
@@ -13,9 +37,9 @@ fi
 if [[ -f /proc/cpuinfo ]] && grep -q "Raspberry Pi" /proc/cpuinfo; then
     ARCH=$(uname -m)
     if [[ "$ARCH" != "aarch64" ]]; then
-        echo "Warning: You're running on a Raspberry Pi with $ARCH architecture."
-        echo "For best performance, use a 64-bit Raspberry Pi OS (aarch64)."
-        echo "Continuing in 5 seconds... (Ctrl+C to cancel)"
+        warn "Warning: Running on Raspberry Pi with $ARCH architecture"
+        warn "For best performance, use a 64-bit Raspberry Pi OS (aarch64)"
+        warn "Continuing in 5 seconds... (Ctrl+C to cancel)"
         sleep 5
     fi
 fi
@@ -24,116 +48,176 @@ fi
 echo
 echo "This script will:"
 echo "  • Install system dependencies (pipewire, python3, etc.)"
-echo "  • Create 'chocopi' user with limited privileges"
-echo "  • Clone/update ChocoPi to /opt/chocopi"
-echo "  • Set up Python virtual environment and dependencies"
-echo "  • Configure PipeWire/WirePlumber for Bluetooth audio"
+echo "  • Create '${CHOCOPI_USER}' user with limited privileges"
+echo "  • Clone/update ChocoPi to ${CHOCOPI_INSTALL_DIR}"
+echo "  • Set up Python ${PYTHON_VERSION} virtual environment and dependencies"
+echo "  • Optionally configure PipeWire/WirePlumber for Bluetooth audio"
 echo "  • Install and enable systemd service"
 echo
 read -p "Continue with installation? [Y/n] " -n 1 -r
 echo
 if [[ ! $REPLY =~ ^[Yy]$ ]] && [[ -n $REPLY ]]; then
-    echo "Installation cancelled."
+    info "Installation cancelled"
     exit 0
 fi
 
 # Install system dependencies
-echo "Installing system dependencies..."
+info "Installing system dependencies..."
 sudo apt update
 sudo apt install -y git pipx libportaudio2 libasound2-dev libegl1 libegl-dev pipewire pipewire-audio pulseaudio-utils
+success "System dependencies installed"
 
 # Create chocopi user if it doesn't exist
-if ! id "chocopi" &>/dev/null; then
-    echo "Creating chocopi user..."
-    sudo useradd -m -s /bin/bash -G audio,video,render,bluetooth chocopi
+if ! id "${CHOCOPI_USER}" &>/dev/null; then
+    info "Creating ${CHOCOPI_USER} user..."
+    sudo useradd -m -s /bin/bash -G audio,video,render,bluetooth "${CHOCOPI_USER}"
+    success "User ${CHOCOPI_USER} created"
 
     # Enable linger to allow user services without login
-    echo "Enabling systemd linger for chocopi user..."
-    sudo loginctl enable-linger chocopi
+    info "Enabling systemd linger for ${CHOCOPI_USER} user..."
+    sudo loginctl enable-linger "${CHOCOPI_USER}"
+    success "Systemd linger enabled"
 fi
 
 # Create application directory
-if [[ ! -d /opt/chocopi ]]; then
-    echo "Setting up application directory..."
-    sudo mkdir -p /opt/chocopi
-    sudo chown chocopi:chocopi /opt/chocopi
+if [[ ! -d "${CHOCOPI_INSTALL_DIR}" ]]; then
+    info "Setting up application directory..."
+    sudo mkdir -p "${CHOCOPI_INSTALL_DIR}"
+    sudo chown "${CHOCOPI_USER}:${CHOCOPI_USER}" "${CHOCOPI_INSTALL_DIR}"
+    success "Application directory created at ${CHOCOPI_INSTALL_DIR}"
 fi
 
 # Clone repository if not already present
-if [[ ! -d /opt/chocopi/.git ]]; then
-    echo "Cloning Choco repository..."
-    sudo -u chocopi git clone https://github.com/codesmax/chocopi.git /opt/chocopi
+if [[ ! -d "${CHOCOPI_INSTALL_DIR}/.git" ]]; then
+    info "Cloning ChocoPi repository..."
+    sudo -u "${CHOCOPI_USER}" git clone "${GITHUB_REPO}" "${CHOCOPI_INSTALL_DIR}"
+    success "Repository cloned"
 else
-    echo "Repository already exists, updating..."
-    sudo -u chocopi git -C /opt/chocopi pull
+    info "Repository already exists, updating..."
+    sudo -u "${CHOCOPI_USER}" git -C "${CHOCOPI_INSTALL_DIR}" pull
+    success "Repository updated"
 fi
 
 # Install uv for chocopi user
-echo "Installing uv for chocopi user..."
-sudo -u chocopi pipx install uv
-sudo -u chocopi pipx ensurepath
+info "Installing uv for ${CHOCOPI_USER} user..."
+sudo -u "${CHOCOPI_USER}" pipx install uv
+sudo -u "${CHOCOPI_USER}" pipx ensurepath
+success "uv installed"
 
-# Create virtual environment with Python 3.11 and install dependencies
-echo "Setting up Python 3.11 environment with uv..."
-cd /opt/chocopi
-sudo -u chocopi /home/chocopi/.local/bin/uv venv .venv --python 3.11
-sudo -u chocopi /home/chocopi/.local/bin/uv pip install -e . --python .venv/bin/python
+# Create virtual environment with Python and install dependencies
+info "Setting up Python ${PYTHON_VERSION} environment with uv..."
+cd "${CHOCOPI_INSTALL_DIR}"
+sudo -u "${CHOCOPI_USER}" "${CHOCOPI_HOME}/.local/bin/uv" venv .venv --python "${PYTHON_VERSION}"
+sudo -u "${CHOCOPI_USER}" "${CHOCOPI_HOME}/.local/bin/uv" pip install -e . --python .venv/bin/python
+success "Python environment configured"
 
 # Make chocopi script executable
-sudo chmod +x /opt/chocopi/chocopi
+sudo chmod +x "${CHOCOPI_INSTALL_DIR}/chocopi"
 
-# Configure PipeWire/WirePlumber for Bluetooth audio
-echo "Configuring PipeWire for Bluetooth audio..."
-sudo -u chocopi mkdir -p /home/chocopi/.config/wireplumber/wireplumber.conf.d/
-sudo -u chocopi cp /opt/chocopi/install/wireplumber/51-bluetooth-audio.conf \
-    /home/chocopi/.config/wireplumber/wireplumber.conf.d/
+# Prompt for Bluetooth configuration
+echo
+echo "─────────────────────────────────────────────────────────"
+read -p "Configure Bluetooth audio? [Y/n] " -n 1 -r
+echo
+echo "─────────────────────────────────────────────────────────"
+
+BT_CONFIG=false
+if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+    BT_CONFIG=true
+    # Configure PipeWire/WirePlumber for Bluetooth audio
+    info "Configuring PipeWire/WirePlumber for Bluetooth audio..."
+
+    # Detect WirePlumber version to determine config format
+    WP_VERSION=$(dpkg-query -W -f='${Version}' wireplumber 2>/dev/null | grep -oP '^\d+\.\d+' || echo "0.5")
+    WP_MAJOR=$(echo "$WP_VERSION" | cut -d. -f1)
+    WP_MINOR=$(echo "$WP_VERSION" | cut -d. -f2)
+
+    if [[ "$WP_MAJOR" -eq 0 ]] && [[ "$WP_MINOR" -lt 5 ]]; then
+        # WirePlumber 0.4.x uses Lua format
+        info "Detected WirePlumber ${WP_VERSION} (using Lua config format)"
+        WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/bluetooth.lua.d"
+        WP_CONFIG_FILE="51-bluetooth-audio.lua"
+    else
+        # WirePlumber 0.5.x+ uses conf format
+        info "Detected WirePlumber ${WP_VERSION} (using conf format)"
+        WP_CONFIG_DIR="${CHOCOPI_HOME}/.config/wireplumber/wireplumber.conf.d"
+        WP_CONFIG_FILE="51-bluetooth-audio.conf"
+    fi
+
+    # Install appropriate WirePlumber config file
+    if [[ -f "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" ]]; then
+        sudo -u "${CHOCOPI_USER}" mkdir -p "${WP_CONFIG_DIR}"
+        sudo -u "${CHOCOPI_USER}" cp "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" \
+            "${WP_CONFIG_DIR}/"
+        success "WirePlumber Bluetooth config installed"
+    fi
+fi
 
 # Enable and start PipeWire services for chocopi user
-echo "Enabling PipeWire services for chocopi user..."
-CHOCOPI_UID=$(id -u chocopi)
-sudo -u chocopi XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user enable pipewire pipewire-pulse wireplumber
-sudo -u chocopi XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user start pipewire pipewire-pulse wireplumber
+info "Enabling PipeWire services for ${CHOCOPI_USER} user..."
+CHOCOPI_UID=$(id -u "${CHOCOPI_USER}")
+sudo -u "${CHOCOPI_USER}" XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user enable pipewire pipewire-pulse wireplumber
+sudo -u "${CHOCOPI_USER}" XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user start pipewire pipewire-pulse wireplumber
+success "PipeWire services enabled and started"
 
 # Install systemd service
-echo "Installing systemd service..."
-sudo cp /opt/chocopi/install/systemd/chocopi.service /etc/systemd/system/
+info "Installing systemd service..."
+sudo cp "${CHOCOPI_INSTALL_DIR}/install/systemd/chocopi.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable chocopi
+success "Systemd service installed and enabled"
 
 # Prompt for OpenAI API key
 echo
-echo "Configuration"
-echo "============="
+echo "─────────────────────────────────────────────────────────"
+info "Configuration"
+echo "─────────────────────────────────────────────────────────"
 read -p "Enter your OpenAI API key (or press Enter to configure later): " API_KEY
 
 if [[ -n "$API_KEY" ]]; then
-    echo "Creating .env file..."
-    echo "OPENAI_API_KEY=$API_KEY" | sudo tee /opt/chocopi/.env > /dev/null
-    sudo chown chocopi:chocopi /opt/chocopi/.env
-    sudo chmod 600 /opt/chocopi/.env
+    info "Creating .env file..."
+    echo "OPENAI_API_KEY=$API_KEY" | sudo tee "${CHOCOPI_INSTALL_DIR}/.env" > /dev/null
+    sudo chown "${CHOCOPI_USER}:${CHOCOPI_USER}" "${CHOCOPI_INSTALL_DIR}/.env"
+    sudo chmod 600 "${CHOCOPI_INSTALL_DIR}/.env"
+    success ".env file created"
 
     echo
-    echo "Installation and configuration complete!"
-    echo "Starting Choco service..."
+    success "Installation and configuration complete!"
+    info "Starting ChocoPi service..."
     sudo systemctl start chocopi
 
     echo
-    echo "Service status:"
+    info "Service status:"
     sudo systemctl status chocopi --no-pager -l
 else
     echo
-    echo "Installation complete!"
-    echo "To configure later, create /opt/chocopi/.env with:"
-    echo "  echo 'OPENAI_API_KEY=your_key_here' | sudo tee /opt/chocopi/.env"
-    echo "  sudo chown chocopi:chocopi /opt/chocopi/.env"
-    echo "  sudo chmod 600 /opt/chocopi/.env"
-    echo "Then start the service:"
+    success "Installation complete!"
+    echo
+    info "To configure later, create ${CHOCOPI_INSTALL_DIR}/.env with:"
+    echo "  echo 'OPENAI_API_KEY=your_key_here' | sudo tee ${CHOCOPI_INSTALL_DIR}/.env"
+    echo "  sudo chown ${CHOCOPI_USER}:${CHOCOPI_USER} ${CHOCOPI_INSTALL_DIR}/.env"
+    echo "  sudo chmod 600 ${CHOCOPI_INSTALL_DIR}/.env"
+    echo
+    info "Then start the service:"
     echo "  sudo systemctl start chocopi"
 fi
 
 echo
-echo "Useful commands:"
+info "Useful commands:"
 echo "  sudo systemctl status chocopi   # Check status"
 echo "  sudo journalctl -u chocopi -f   # View logs"
+
+# Show Bluetooth pairing instructions if configured
+if [[ "$BT_CONFIG" == "true" ]]; then
+    echo
+    info "To pair a Bluetooth audio device:"
+    echo "  bluetoothctl"
+    echo "  scan on"
+    echo "  pair <MAC_ADDRESS>"
+    echo "  trust <MAC_ADDRESS>"
+    echo "  connect <MAC_ADDRESS>"
+    echo "  exit"
+fi
+
 echo
-echo "Note: See README.md for more detailed instructions including Bluetooth audio setup."
+echo "Note: See README.md for more detailed setup and configuration instructions."
