@@ -310,7 +310,7 @@ class DisplayManager:
                 frame_count += 1
                 if frame_count == 1:
                     logger.debug("✅ First frame rendered")
-                elif frame_count % 300 == 0:  # Every 10 seconds
+                elif frame_count % (fps * 10) == 0:  # Every 10 seconds
                     logger.debug("🎬 Display running... %s frames rendered", frame_count)
         finally:
             logger.debug("🛑 Display loop ending")

@@ -10,7 +10,7 @@ if [[ "$OSTYPE" == "linux-gnu"* ]]; then
     export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}
 
     # Prefer DSI display device for KMSDRM when available
-    if [[ ! -v SDL_KMSDRM_DEVICE_INDEX ]]; then
+    if [[ -z ${SDL_KMSDRM_DEVICE_INDEX+x} ]]; then
         # Find connected DSI display
         for status in /sys/class/drm/card*-DSI-*/status; do
             if [[ -f "$status" ]] && [[ "$(cat "$status")" == "connected" ]]; then

@@ -140,12 +140,10 @@ if [[ -f "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" ]]; then
     success "WirePlumber Bluetooth config installed"
 fi
 
-# Enable and start PipeWire services for chocopi user
-info "Enabling PipeWire services for ${CHOCOPI_USER} user..."
-CHOCOPI_UID=$(id -u "${CHOCOPI_USER}")
-sudo -u "${CHOCOPI_USER}" XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user enable pipewire pipewire-pulse wireplumber
-sudo -u "${CHOCOPI_USER}" XDG_RUNTIME_DIR=/run/user/$CHOCOPI_UID systemctl --user start pipewire pipewire-pulse wireplumber
-success "PipeWire services enabled and started"
+# Restart WirePlumber to pick up Bluetooth config
+info "Restarting WirePlumber to load Bluetooth configuration..."
+sudo -u "${CHOCOPI_USER}" XDG_RUNTIME_DIR=/run/user/$(id -u "${CHOCOPI_USER}") systemctl --user restart wireplumber
+success "PipeWire and Bluetooth services configured"
 
 # Install systemd service
 info "Installing systemd service..."
@@ -191,7 +189,7 @@ echo "  sudo systemctl status chocopi   # Check status"
 echo "  sudo journalctl -u chocopi -f   # View logs"
 echo
 tip "To pair a Bluetooth audio device:"
-echo "  bluetoothctl"
+echo "  sudo -u ${CHOCOPI_USER} bluetoothctl"
 echo "  scan on"
 echo "  pair <MAC_ADDRESS>"
 echo "  trust <MAC_ADDRESS>"

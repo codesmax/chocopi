@@ -47,12 +47,10 @@ cd chocopi
 # Install uv if needed
 pipx install uv
 
-# Create venv with Python 3.11 and install dependencies
+# Set up venv with Python 3.11 and install dependencies
 uv venv .venv --python 3.11
-uv pip install -e . --python .venv/bin/python
-
-# Activate and run
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+uv pip install -e .
 
 # Update .env file with your OpenAI API key
 ./chocopi
@@ -70,12 +68,19 @@ For Bluetooth microphone and speaker support:
 
 **Pair your device**
    ```bash
-   bluetoothctl
+   # Set device in pairing mode and connect
+   sudo -u chocopi bluetoothctl
    scan on
    pair <MAC_ADDRESS>
    trust <MAC_ADDRESS>
    connect <MAC_ADDRESS>
    exit
+
+   # Restart Wireplumber
+   sudo -u chocopi XDG_RUNTIME_DIR=/var/run/user/$(id -u chocopi) systemctl --user restart wireplumber
+
+   # Restart ChocoPi
+   sudo systemctl restart chocopi
    ```
 
 ## Service Management
