@@ -154,7 +154,7 @@ success "Systemd service installed and enabled"
 
 # Prompt for OpenAI API key
 info "Configuring OpenAI API..."
-read -p "Enter your OpenAI API key (or press Enter to configure later): " API_KEY
+read -s -p "Enter your OpenAI API key (or press Enter to configure later): " API_KEY
 
 if [[ -n "$API_KEY" ]]; then
     info "Creating .env file..."
