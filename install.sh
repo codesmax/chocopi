@@ -154,9 +154,10 @@ success "Systemd service installed and enabled"
 
 # Prompt for OpenAI API key
 info "Configuring OpenAI API..."
-read -s -p "Enter your OpenAI API key (or press Enter to configure later): " API_KEY
+read -p "Enter your OpenAI API key (or press Enter to configure later): " API_KEY
 
 if [[ -n "$API_KEY" ]]; then
+    echo
     info "Creating .env file..."
     echo "OPENAI_API_KEY=$API_KEY" | sudo tee "${CHOCOPI_INSTALL_DIR}/.env" > /dev/null
     sudo chown "${CHOCOPI_USER}:${CHOCOPI_USER}" "${CHOCOPI_INSTALL_DIR}/.env"
