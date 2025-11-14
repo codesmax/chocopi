@@ -28,7 +28,7 @@ LOG_LEVEL = os.environ.get('CHOCO_LOG', 'INFO').upper()
 USE_DISPLAY = os.environ.get('CHOCO_DISPLAY') == '1' and _has_display()
 
 # Configure logging
-logging.basicConfig(level=logging.WARNING)  # Silence third-party libraries
+logging.basicConfig(format='[%(levelname)s:%(name)s] %(message)s', level=logging.WARNING)  # Silence third-party libraries
 logging.getLogger('chocopi').setLevel(getattr(logging, LOG_LEVEL))
 
 # Project root (../..)
