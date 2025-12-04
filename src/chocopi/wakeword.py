@@ -16,7 +16,8 @@ class WakeWordDetector:
 
     def __init__(self):
         self.config = CONFIG['openwakeword']
-        self.audio_queue = queue.Queue()
+        self.queue_maxsize = self.config['queue_maxsize']
+        self.audio_queue = queue.Queue(maxsize=self.queue_maxsize)
         self.framework = 'tflite' if IS_PI else 'onnx'
         self.model_paths = []
         for lang_config in CONFIG['languages'].values():
@@ -36,8 +37,9 @@ class WakeWordDetector:
     async def listen(self):
         """Listen for wake word and return detected wake word"""
 
-        # Reset prediction and audio feature buffers
+        # Reset prediction/audio buffers and start with fresh audio queue
         self.model.reset()
+        self.audio_queue = queue.Queue(maxsize=self.queue_maxsize)
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
 
         try:

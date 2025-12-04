@@ -29,7 +29,7 @@ class ConversationSession:
         self.lang_config = CONFIG['languages'][learning_language]
         self.websocket = None
         self.response_chunks = []
-        self.audio_queue = queue.Queue()
+        self.audio_queue = queue.Queue(maxsize=CONFIG['openai']['queue_maxsize'])
         self.display = display
         self.is_active = True
         self.is_greeting = True
@@ -270,5 +270,9 @@ class ConversationSession:
             AUDIO.stop_recording()
             if upload_task:
                 upload_task.cancel()
+                try:
+                    await upload_task
+                except asyncio.CancelledError:
+                    pass
             if self.websocket:
                 await self.websocket.close()
