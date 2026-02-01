@@ -2,7 +2,7 @@
 user_age: 7
 
 # User's native language; translations and explanations will be given in this language
-native_language: "en_US"
+native_language: "en"
 
 # Supported learning languages; first is default
 languages:
@@ -18,13 +18,13 @@ languages:
     wake_word: "hola choco"
     sleep_word: "adiós choco"
     comprehension_age: 2
-  cmn:
-    language_name: "Mandarin Chinese (cmn-Hans-CN)"
+  zh:
+    language_name: "Mandarin Chinese (zh-Hans-CN)"
     model: "nihao-choco"
     wake_word: "你好 choco"
     sleep_word: "再见 choco"
     comprehension_age: 2
-  en_US:
+  en:
     language_name: "US English (en-US)"
     model: "hey-choco"
     wake_word: "hey choco"
@@ -92,7 +92,7 @@ openai:
             threshold: 0.3
             prefix_padding_ms: 300
             silence_duration_ms: 800
-            create_response: true
+            create_response: false
             interrupt_response: true
         output:
           speed: 0.8
@@ -108,15 +108,17 @@ openai:
               text: "Greet the user with up to 5 words. Keep it brief."
   transcription_prompt: >
     - Expect casual speech from a child in {native_language} and {learning_language}.
+  response_instructions: >
+    - Keep responses to 2-4 sentences. End with a question.
+    - Respond in {learning_language} only, using vocabulary for a {comprehension_age}-year-old native speaker.
+    - Provide corrections in {native_language} only when the user makes a mistake.
+    {translation_instruction}
+  goodbye_instructions: >
+    User said the sleep word. Respond with a brief goodbye in {learning_language} only.
   session_instructions: >
     You are Choco, a friendly {learning_language} tutor. Content must be suitable for a {user_age}-year-old.
 
-    # Response Format
-    - ALWAYS respond in {learning_language} first, using vocabulary for a {comprehension_age}-year-old native speaker.
-    - Keep responses 2-4 sentences. End with a question.
-    - Add a {native_language} translation ONLY when: (1) the user spoke in {native_language}, or (2) you are correcting a mistake.
-    - If the user spoke {learning_language} with no mistakes, respond in {learning_language} only—no translation.
-    - If user says '{sleep_word}', say a brief goodbye in {learning_language} only.
+    # Safety
     - If asked for inappropriate content, refuse briefly and redirect to something fun.
 
     # Style

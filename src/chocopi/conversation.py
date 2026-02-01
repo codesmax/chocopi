@@ -12,6 +12,7 @@ from enum import Enum
 from rapidfuzz import fuzz
 from chocopi.config import CONFIG
 from chocopi.audio import AUDIO
+from chocopi.language import detect_language_code
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,42 @@ class ConversationSession:
         self.is_greeting = True
         self.is_terminating = False
         self.is_response_pending = False
+        self.native_lang_code = CONFIG['native_language'].lower()
+
+    async def _create_response_from_transcript(self, transcript, detected_code, is_sleep_word):
+        if not transcript.strip():
+            return
+
+        translation_required = detected_code == self.native_lang_code
+        learning_language = self.lang_config['language_name']
+        native_language = CONFIG['languages'][CONFIG['native_language']]['language_name']
+        instruction_params = {
+            "learning_language": learning_language,
+            "native_language": native_language,
+            "comprehension_age": self.lang_config["comprehension_age"],
+            "translation_instruction": f"- Add a full translation of your response to {native_language}" if translation_required else "",
+        }
+        if is_sleep_word:
+            instructions = CONFIG["openai"]["goodbye_instructions"].format(**instruction_params)
+        else:
+            instructions = CONFIG["openai"]["response_instructions"].format(**instruction_params)
+
+        response_create = {
+            "type": "response.create",
+            "response": {
+                "instructions": f"Detected user language: {detected_code}. {instructions}",
+                "input": [
+                    {
+                        "type": "message",
+                        "role": "user",
+                        "content": [
+                            {"type": "input_text", "text": transcript}
+                        ],
+                    }
+                ],
+            },
+        }
+        await self.websocket.send(json.dumps(response_create))
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -184,15 +221,14 @@ class ConversationSession:
                     self.display.add_transcript("user", transcript)
 
                 # Check for sleep words using fuzzy matching
-                if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
+                is_sleep_word = self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold'])
+                if is_sleep_word:
                     logger.info("💤 Sleep word detected: '%s'", transcript)
                     self.is_terminating = True
 
-                    # Goodbye response already played; terminate session
-                    if not self.is_response_pending:
-                        logger.debug("👋 Goodbye response already played, terminating")
-                        AUDIO.stop_recording()
-                        return Result.GOODBYE
+                detected_code = detect_language_code(transcript)
+                logger.debug("🔎 Detected language: %s", detected_code)
+                await self._create_response_from_transcript(transcript, detected_code, is_sleep_word)
 
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
