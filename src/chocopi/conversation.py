@@ -12,6 +12,7 @@ from enum import Enum
 from rapidfuzz import fuzz
 from chocopi.config import CONFIG
 from chocopi.audio import AUDIO
+from chocopi.language import detect_language_code
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,14 @@ class ConversationSession:
         self.is_greeting = True
         self.is_terminating = False
         self.is_response_pending = False
+        self.native_lang_code = CONFIG['native_language'].lower()
+        self.instruction_params = {
+            "user_age": CONFIG['user_age'],
+            "native_language": CONFIG['languages'][CONFIG['native_language']]['language_name'],
+            "learning_language": self.lang_config['language_name'],
+            "comprehension_age": self.lang_config['comprehension_age'],
+            "sleep_word": self.lang_config['sleep_word']
+        }
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -51,31 +60,35 @@ class ConversationSession:
             await self._update_session()
 
             # Create and send greeting response to initiate conversation
-            await self.websocket.send(json.dumps(CONFIG['openai']['greeting_config']))
+            greeting_instructions = CONFIG['openai']['greeting_instructions'].format(**self.instruction_params)
+            await self._create_response(greeting_instructions)
         except Exception as e:
             logger.error("❌ Failed to connect to OpenAI API: %s", e)
             raise
 
     async def _update_session(self):
         """Update session configuration with language-specific instructions"""
-        instruction_params = {}
-        instruction_params['user_age'] = CONFIG['user_age']
-        instruction_params['native_language'] = CONFIG['languages'][CONFIG['native_language']]['language_name']
-        instruction_params['learning_language'] = self.lang_config['language_name']
-        instruction_params['comprehension_age'] = self.lang_config['comprehension_age']
-        instruction_params['sleep_word'] = self.lang_config['sleep_word']
-        instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
-
-        transcription_prompt = CONFIG['openai']['transcription_prompt'].format(**instruction_params)
+        session_instructions = CONFIG['openai']['session_instructions'].format(**self.instruction_params)
+        transcription_instructions = CONFIG['openai']['transcription_instructions'].format(**self.instruction_params)
 
         session_config = CONFIG['openai']['session_config'].copy()
-        session_config['session']['instructions'] = instructions
-        session_config['session']['audio']['input']['transcription']['prompt'] = transcription_prompt
+        session_config['session']['instructions'] = session_instructions
+        session_config['session']['audio']['input']['transcription']['prompt'] = transcription_instructions
 
-        logger.debug('⚙️  Session instructions: %s', instructions)
-        logger.debug('⚙️  Transcription prompt: %s', transcription_prompt)
+        logger.debug('⚙️  Session instructions: %s', session_instructions)
+        logger.debug('⚙️  Transcription instructions: %s', transcription_instructions)
 
         await self.websocket.send(json.dumps(session_config))
+
+    async def _create_response(self, instructions, transcript = ""):
+        """Create response with given instructions and transcript"""
+        response_config = CONFIG['openai']['response_config'].copy()
+        response_config['response']['instructions'] = instructions
+        response_config['response']['input'][0]['content'][0]['text'] = transcript
+        
+        logger.debug('⚙️  Response instructions: %s', instructions)
+
+        await self.websocket.send(json.dumps(response_config))
 
     def _listen(self):
         """Start audio capture with handler"""
@@ -184,16 +197,22 @@ class ConversationSession:
                     self.display.add_transcript("user", transcript)
 
                 # Check for sleep words using fuzzy matching
-                if self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold']):
+                is_sleep_word = self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold'])
+                if is_sleep_word:
                     logger.info("💤 Sleep word detected: '%s'", transcript)
                     self.is_terminating = True
+                    response_instructions = CONFIG["openai"]["goodbye_instructions"].format(**self.instruction_params)
+                else:
+                    detected_language = detect_language_code(transcript)
+                    logger.debug("🔎 Detected language: %s", detected_language)
+                    translation_required = detected_language == self.native_lang_code
+                    native_language = CONFIG['languages'][CONFIG['native_language']]['language_name']
+                    instruction_params = self.instruction_params | {
+                        "translation_instruction": f"- Add a full translation of your response to {native_language}" if translation_required else "",
+                    }
+                    response_instructions = CONFIG["openai"]["response_instructions"].format(**instruction_params)
 
-                    # Goodbye response already played; terminate session
-                    if not self.is_response_pending:
-                        logger.debug("👋 Goodbye response already played, terminating")
-                        AUDIO.stop_recording()
-                        return Result.GOODBYE
-
+                await self._create_response(response_instructions, transcript)
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
                     audio_bytes = base64.b64decode(audio_base64)
@@ -270,5 +289,9 @@ class ConversationSession:
             AUDIO.stop_recording()
             if upload_task:
                 upload_task.cancel()
+                try:
+                    await upload_task
+                except asyncio.CancelledError:
+                    pass
             if self.websocket:
                 await self.websocket.close()

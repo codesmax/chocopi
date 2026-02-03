@@ -63,6 +63,7 @@ class AudioManager:
     def start_playing(self, data, sample_rate=24000, blocksize=4096):
         """Play audio file or data (non-blocking)"""
         try:
+            self.stop_playing()
             if isinstance(data, str):
                 # Play audio file directly
                 path = data if data.startswith('/') else os.path.join(SOUNDS_PATH, data)

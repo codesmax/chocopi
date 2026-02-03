@@ -36,8 +36,9 @@ class WakeWordDetector:
     async def listen(self):
         """Listen for wake word and return detected wake word"""
 
-        # Reset prediction and audio feature buffers
+        # Reset prediction/audio buffers and start with fresh audio queue
         self.model.reset()
+        self.audio_queue = queue.Queue()
         logger.info("🎙️  Listening for wake word using %s model...", self.framework.upper())
 
         try:
