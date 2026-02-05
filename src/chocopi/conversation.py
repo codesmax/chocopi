@@ -13,6 +13,13 @@ from rapidfuzz import fuzz
 from chocopi.config import CONFIG
 from chocopi.audio import AUDIO
 from chocopi.language import detect_language_code
+from chocopi.memory import (
+    build_memory_block,
+    load_memory,
+    save_memory,
+    summarize_session,
+    update_memory,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,8 +33,14 @@ class ConversationSession:
         GOODBYE = "goodbye"
         ERROR = "error"
 
-    def __init__(self, learning_language = 'ko', display=None):
+    def __init__(self, learning_language='ko', profile=None, display=None):
+        if profile is None:
+            raise ValueError("ConversationSession requires a profile configuration")
+        self.profile = profile
+        self.profile_name = self.profile.get("name", "default").lower()
+        self.memory = load_memory(self.profile_name)
         self.lang_config = CONFIG['languages'][learning_language]
+        self.comprehension_age = self.profile["learning_languages"][learning_language]["comprehension_age"]
         self.websocket = None
         self.response_chunks = []
         self.audio_queue = queue.Queue()
@@ -36,14 +49,17 @@ class ConversationSession:
         self.is_greeting = True
         self.is_terminating = False
         self.is_response_pending = False
-        self.native_lang_code = CONFIG['native_language'].lower()
+        self.native_lang_code = self.profile["native_language"].lower()
         self.instruction_params = {
-            "user_age": CONFIG['user_age'],
-            "native_language": CONFIG['languages'][CONFIG['native_language']]['language_name'],
+            "user_age": self.profile["user_age"],
+            "native_language": CONFIG['languages'][self.profile["native_language"]]['language_name'],
             "learning_language": self.lang_config['language_name'],
-            "comprehension_age": self.lang_config['comprehension_age'],
+            "comprehension_age": self.comprehension_age,
             "sleep_word": self.lang_config['sleep_word']
         }
+        self.last_user_transcript = ""
+        self.last_assistant_transcript = ""
+        self.transcript_log = []
 
     async def connect(self):
         """Connect to OpenAI Realtime API"""
@@ -68,7 +84,9 @@ class ConversationSession:
 
     async def _update_session(self):
         """Update session configuration with language-specific instructions"""
-        session_instructions = CONFIG['openai']['session_instructions'].format(**self.instruction_params)
+        memory_block = build_memory_block(self.memory)
+        instruction_params = self.instruction_params | {"memory_block": memory_block}
+        session_instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
         transcription_instructions = CONFIG['openai']['transcription_instructions'].format(**self.instruction_params)
 
         session_config = CONFIG['openai']['session_config'].copy()
@@ -80,11 +98,22 @@ class ConversationSession:
 
         await self.websocket.send(json.dumps(session_config))
 
-    async def _create_response(self, instructions, transcript = ""):
-        """Create response with given instructions and transcript"""
+    async def _add_user_message(self, transcript):
+        """Add user transcript to conversation history"""
+        message = {
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": transcript}],
+            },
+        }
+        await self.websocket.send(json.dumps(message))
+
+    async def _create_response(self, instructions):
+        """Create response with given instructions"""
         response_config = CONFIG['openai']['response_config'].copy()
         response_config['response']['instructions'] = instructions
-        response_config['response']['input'][0]['content'][0]['text'] = transcript
         
         logger.debug('⚙️  Response instructions: %s', instructions)
 
@@ -192,6 +221,9 @@ class ConversationSession:
             case "conversation.item.input_audio_transcription.completed":
                 transcript = data.get("transcript", "")
                 logger.info("🗣️  You said: %s", transcript)
+                self.last_user_transcript = transcript
+                if transcript:
+                    self.transcript_log.append({"role": "user", "text": transcript})
 
                 if self.display:
                     self.display.add_transcript("user", transcript)
@@ -206,13 +238,14 @@ class ConversationSession:
                     detected_language = detect_language_code(transcript)
                     logger.debug("🔎 Detected language: %s", detected_language)
                     translation_required = detected_language == self.native_lang_code
-                    native_language = CONFIG['languages'][CONFIG['native_language']]['language_name']
+                    native_language = CONFIG['languages'][self.profile["native_language"]]['language_name']
                     instruction_params = self.instruction_params | {
                         "translation_instruction": f"- Add a full translation of your response to {native_language}" if translation_required else "",
                     }
                     response_instructions = CONFIG["openai"]["response_instructions"].format(**instruction_params)
 
-                await self._create_response(response_instructions, transcript)
+                await self._add_user_message(transcript)
+                await self._create_response(response_instructions)
             case "response.output_audio.delta":
                 if audio_base64 := data.get("delta", ""):
                     audio_bytes = base64.b64decode(audio_base64)
@@ -221,6 +254,9 @@ class ConversationSession:
             case "response.output_audio_transcript.done":
                 transcript = data.get("transcript", "")
                 logger.info("🤖 Choco says: %s", transcript)
+                self.last_assistant_transcript = transcript
+                if transcript:
+                    self.transcript_log.append({"role": "assistant", "text": transcript})
 
                 if self.display:
                     self.display.add_transcript("choco", transcript)
@@ -286,6 +322,21 @@ class ConversationSession:
         except Exception as e:
             logger.error("⚠️  Error during conversation: %s", e)
         finally:
+            if self.transcript_log:
+                try:
+                    self.memory = await asyncio.to_thread(
+                        summarize_session,
+                        self.profile_name,
+                        self.profile,
+                        self.transcript_log,
+                        self.memory,
+                    )
+                except Exception as exc:
+                    logger.warning("Memory summarization error: %s", exc)
+                    update_memory(self.memory, self.last_user_transcript, self.last_assistant_transcript)
+            else:
+                update_memory(self.memory, self.last_user_transcript, self.last_assistant_transcript)
+            save_memory(self.profile_name, self.memory)
             AUDIO.stop_recording()
             if upload_task:
                 upload_task.cancel()

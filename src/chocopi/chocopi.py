@@ -8,25 +8,32 @@ from chocopi.wakeword import WakeWordDetector
 from chocopi.conversation import ConversationSession
 from chocopi.display import create_display_manager
 from chocopi.language import warm_language_detector
+from chocopi.profiles import get_active_profile, get_profile_languages
 
 logger = logging.getLogger(__name__)
 
 
 class ChocoPi:
     def __init__(self):
+        self.profile = get_active_profile()
         self.wake_word_detector = WakeWordDetector()
-        self.wake_words = [lang_config['wake_word'].lower() for lang_config in CONFIG['languages'].values()]
+        profile_langs = get_profile_languages(self.profile)
+        self.wake_words = [
+            CONFIG["languages"][lang]["wake_word"].lower()
+            for lang in profile_langs
+            if lang in CONFIG["languages"]
+        ]
         self.display = create_display_manager(CONFIG)
         warm_language_detector()
 
     def _wake_word_language(self, wake_word):
         """Get language configuration based on detected wake word"""
         for lang, config in CONFIG['languages'].items():
-            if wake_word == config['model'] and lang != CONFIG['native_language']:
+            if wake_word == config['model'] and lang != self.profile["native_language"]:
                 logger.info("⚙️  Session configured for: %s", config['language_name'])
                 return lang
 
-        default_lang = list(CONFIG['languages'].keys())[0]
+        default_lang = next(iter(self.profile["learning_languages"].keys()))
         logger.error("⚠️  Unknown wake word: '%s'. Using default language: %s", wake_word, default_lang)
 
         return default_lang
@@ -58,7 +65,7 @@ class ChocoPi:
                 AUDIO.start_playing(CONFIG['sounds']['awake'])
 
                 # Run conversation session
-                session = ConversationSession(lang, display=self.display)
+                session = ConversationSession(lang, self.profile, display=self.display)
                 await session.run()
 
                 AUDIO.start_playing(CONFIG['sounds']['bye'])
