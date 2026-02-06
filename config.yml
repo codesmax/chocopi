@@ -42,6 +42,9 @@ session:
   conversation_timeout: 90
   sleep_word_threshold: 80
 
+summary:
+  max_chars: 20000
+
 display:
   width: 800
   height: 480
@@ -69,39 +72,8 @@ sounds:
   sent: "sent.wav"
   bye: "bye.wav"
 
-openwakeword:
-  threshold: 0.3
-  vad_threshold: 0.2
-  sample_rate: 16000
-  chunk_duration_ms: 80  # multiples of 80ms recommended
-  input_gain: 1.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
-
-openai:
-  model: "gpt-realtime-mini-2025-12-15"
-  sample_rate: 24000
-  chunk_duration_ms: 40
-  input_gain: 1.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
-  session_config:
-    type: "session.update"
-    session:
-      type: "realtime"
-      audio:
-        input:
-          noise_reduction:
-            type: "far_field"
-          transcription:
-            model: "gpt-4o-mini-transcribe"
-          turn_detection:
-            type: "server_vad"
-            threshold: 0.3
-            prefix_padding_ms: 300
-            silence_duration_ms: 800
-            create_response: false
-            interrupt_response: true
-        output:
-          speed: 0.8
-          voice: "marin"
-  session_instructions: >
+prompts:
+  session: >
     You are Choco, a friendly {learning_language} tutor. Content must be suitable for a {user_age}-year-old.
 
     # Memory
@@ -114,72 +86,109 @@ openai:
 
     # Style
     - Warm, patient, playful tone. Vary your phrasing naturally.
-  transcription_instructions: >
+  transcription: >
     - Expect casual speech from a child in {native_language} and {learning_language}.
-  response_config:
-    type: "response.create"
-    response: {}
-  greeting_instructions: >
-    Greet the user with up to 5 words in {learning_language}. Keep it brief.
-  response_instructions: >
+  response: >
     - Keep responses to 2-4 sentences. End with a question.
     - Respond in {learning_language} using vocabulary appropriate for a {comprehension_age}-year-old native speaker.
     - Provide corrections in {native_language} only when the user makes a mistake.
     {translation_instruction}
-  goodbye_instructions: >
+  greeting: >
+    Greet the user with up to 5 words in {learning_language}. Keep it brief.
+  goodbye: >
     User said the sleep word. Respond with a brief goodbye in {learning_language} only.
-  summary_config:
-    model: "gpt-4.1-nano"
-    text:
-      format:
-        type: "json_schema"
-        name: "chocopi_session_summary"
-        schema:
-          type: "object"
-          additionalProperties: false
-          properties:
-            summary:
-              type: "string"
-            progress:
-              type: "object"
-              additionalProperties: false
-              properties:
-                new_vocab:
-                  type: "array"
-                  items:
-                    type: "string"
-                mistakes:
-                  type: "array"
-                  items:
-                    type: "string"
-                strengths:
-                  type: "array"
-                  items:
-                    type: "string"
-                next_focus:
-                  type: "string"
-              required: ["new_vocab", "mistakes", "strengths", "next_focus"]
-            recent_items:
-              type: "array"
-              items:
-                type: "object"
-                additionalProperties: false
-                properties:
-                  type:
-                    type: "string"
-                    enum: ["joke", "vocab", "story", "fact", "topic"]
-                  text:
-                    type: "string"
-                required: ["type", "text"]
-            recent_user_requests:
-              type: "array"
-              items:
-                type: "string"
-          required: ["summary", "progress", "recent_items", "recent_user_requests"]
-  summary_instructions: >
+  summary: >
     Summarize the session in {native_language}. Use 3-6 sentences and include progress, interests, corrections, and novelty.
     Return structured JSON matching the provided schema.
 
-summary:
-  max_chars: 20000
-  fallback_turns: 12
+openwakeword:
+  threshold: 0.3
+  vad_threshold: 0.2
+  sample_rate: 16000
+  chunk_duration_ms: 80  # multiples of 80ms recommended
+  input_gain: 1.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
+
+openai:
+  model: "gpt-realtime-mini-2025-12-15"
+  sample_rate: 24000
+  chunk_duration_ms: 40
+  input_gain: 1.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
+  requests:
+    response:
+      type: "response.create"
+      response: {}
+    user_message:
+      type: "conversation.item.create"
+      item:
+        type: "message"
+        role: "user"
+        content:
+          - type: "input_text"
+    session:
+      type: "session.update"
+      session:
+        type: "realtime"
+        audio:
+          input:
+            noise_reduction:
+              type: "far_field"
+            transcription:
+              model: "gpt-4o-mini-transcribe"
+            turn_detection:
+              type: "server_vad"
+              threshold: 0.3
+              prefix_padding_ms: 300
+              silence_duration_ms: 800
+              create_response: false
+              interrupt_response: true
+          output:
+            speed: 0.8
+            voice: "marin"
+    summary:
+      model: "gpt-4.1-nano"
+      text:
+        format:
+          type: "json_schema"
+          name: "chocopi_session_summary"
+          schema:
+            type: "object"
+            additionalProperties: false
+            properties:
+              summary:
+                type: "string"
+              progress:
+                type: "object"
+                additionalProperties: false
+                properties:
+                  new_vocab:
+                    type: "array"
+                    items:
+                      type: "string"
+                  mistakes:
+                    type: "array"
+                    items:
+                      type: "string"
+                  strengths:
+                    type: "array"
+                    items:
+                      type: "string"
+                  next_focus:
+                    type: "string"
+                required: ["new_vocab", "mistakes", "strengths", "next_focus"]
+              recent_items:
+                type: "array"
+                items:
+                  type: "object"
+                  additionalProperties: false
+                  properties:
+                    type:
+                      type: "string"
+                      enum: ["joke", "vocab", "story", "fact", "topic"]
+                    text:
+                      type: "string"
+                  required: ["type", "text"]
+              recent_user_requests:
+                type: "array"
+                items:
+                  type: "string"
+            required: ["summary", "progress", "recent_items", "recent_user_requests"]

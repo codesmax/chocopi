@@ -28,9 +28,30 @@ def _memory_path(profile_name):
 def _default_memory():
     return {
         "summary": "",
+        "progress": {
+            "new_vocab": [],
+            "mistakes": [],
+            "strengths": [],
+            "next_focus": "",
+        },
         "recent_items": [],
         "recent_user_requests": [],
     }
+
+
+def normalize_memory(memory):
+    if not isinstance(memory, dict):
+        return _default_memory()
+
+    memory.setdefault("summary", "")
+    memory.setdefault("progress", {})
+    memory["progress"].setdefault("new_vocab", [])
+    memory["progress"].setdefault("mistakes", [])
+    memory["progress"].setdefault("strengths", [])
+    memory["progress"].setdefault("next_focus", "")
+    memory.setdefault("recent_items", [])
+    memory.setdefault("recent_user_requests", [])
+    return memory
 
 
 def load_memory(profile_name):
@@ -38,7 +59,8 @@ def load_memory(profile_name):
     if not path.exists():
         return _default_memory()
     with path.open("r", encoding="utf-8") as file:
-        return yaml.safe_load(file) or _default_memory()
+        loaded = yaml.safe_load(file) or _default_memory()
+    return normalize_memory(loaded)
 
 
 def save_memory(profile_name, memory):
@@ -120,6 +142,7 @@ def update_memory(memory, user_text, assistant_text):
 def merge_summary(memory, summary_data):
     if not summary_data:
         return memory
+    memory = normalize_memory(memory)
 
     if summary := summary_data.get("summary"):
         memory["summary"] = summary.strip()
@@ -164,27 +187,49 @@ def _extract_output_text(response_data):
     return ""
 
 
+def _format_transcript_line(entry):
+    role = entry.get("role", "user")
+    label = "User" if role == "user" else "Choco"
+    text = entry.get("text", "").strip()
+    if not text:
+        return ""
+    return f"{label}: {text}"
+
+
 def _format_transcript(transcript_log):
     lines = []
     for entry in transcript_log:
-        role = entry.get("role", "user")
-        label = "User" if role == "user" else "Choco"
-        text = entry.get("text", "").strip()
-        if text:
-            lines.append(f"{label}: {text}")
+        line = _format_transcript_line(entry)
+        if line:
+            lines.append(line)
     return "\n".join(lines)
+
+
+def _format_transcript_tail(transcript_log, max_chars):
+    lines = []
+    total = 0
+    for entry in reversed(transcript_log):
+        line = _format_transcript_line(entry)
+        if not line:
+            continue
+        line_len = len(line) + (1 if lines else 0)
+        if total + line_len > max_chars:
+            break
+        lines.append(line)
+        total += line_len
+    return "\n".join(reversed(lines))
 
 
 def _build_summary_payload(profile, transcript_text, memory):
     native_language = CONFIG["languages"][profile["native_language"]]["language_name"]
-    instructions = CONFIG["openai"]["summary_instructions"].format(
+    instructions = CONFIG["prompts"]["summary"].format(
         native_language=native_language
     )
     summary = memory.get("summary", "").strip()
     if summary:
         transcript_text = f"Existing summary: {summary}\n\n{transcript_text}"
 
-    payload = copy.deepcopy(CONFIG["openai"]["summary_config"])
+    payload = copy.deepcopy(CONFIG["openai"]["requests"]["summary"])
     payload["instructions"] = instructions
     payload["input"] = [
         {
@@ -202,8 +247,7 @@ def summarize_session(profile_name, profile, transcript_log, memory):
     transcript_text = _format_transcript(transcript_log)
     max_chars = CONFIG["summary"]["max_chars"]
     if len(transcript_text) > max_chars:
-        fallback_turns = CONFIG["summary"]["fallback_turns"]
-        transcript_text = _format_transcript(transcript_log[-fallback_turns:])
+        transcript_text = _format_transcript_tail(transcript_log, max_chars)
 
     payload = _build_summary_payload(profile, transcript_text, memory)
     api_key = os.getenv("OPENAI_API_KEY")

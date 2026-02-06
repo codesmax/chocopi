@@ -36,10 +36,12 @@ class ConversationSession:
     def __init__(self, learning_language='ko', profile=None, display=None):
         if profile is None:
             raise ValueError("ConversationSession requires a profile configuration")
+        self.openai = CONFIG["openai"]
+        self.session_config = CONFIG["session"]
         self.profile = profile
         self.profile_name = self.profile.get("name", "default").lower()
         self.memory = load_memory(self.profile_name)
-        self.lang_config = CONFIG['languages'][learning_language]
+        self.lang_config = CONFIG["languages"][learning_language]
         self.comprehension_age = self.profile["learning_languages"][learning_language]["comprehension_age"]
         self.websocket = None
         self.response_chunks = []
@@ -52,7 +54,7 @@ class ConversationSession:
         self.native_lang_code = self.profile["native_language"].lower()
         self.instruction_params = {
             "user_age": self.profile["user_age"],
-            "native_language": CONFIG['languages'][self.profile["native_language"]]['language_name'],
+            "native_language": CONFIG["languages"][self.profile["native_language"]]["language_name"],
             "learning_language": self.lang_config['language_name'],
             "comprehension_age": self.comprehension_age,
             "sleep_word": self.lang_config['sleep_word']
@@ -69,14 +71,14 @@ class ConversationSession:
             raise ValueError("OPENAI_API_KEY environment variable not set. Please add it to your .env file.")
         try:
             headers = {"Authorization": f"Bearer {openai_key}"}
-            uri = f"wss://api.openai.com/v1/realtime?model={CONFIG['openai']['model']}"
+            uri = f"wss://api.openai.com/v1/realtime?model={self.openai['model']}"
             self.websocket = await websockets.connect(uri, additional_headers=headers)
 
             # Send session config
             await self._update_session()
 
             # Create and send greeting response to initiate conversation
-            greeting_instructions = CONFIG['openai']['greeting_instructions'].format(**self.instruction_params)
+            greeting_instructions = CONFIG['prompts']['greeting'].format(**self.instruction_params)
             await self._create_response(greeting_instructions)
         except Exception as e:
             logger.error("❌ Failed to connect to OpenAI API: %s", e)
@@ -86,10 +88,10 @@ class ConversationSession:
         """Update session configuration with language-specific instructions"""
         memory_block = build_memory_block(self.memory)
         instruction_params = self.instruction_params | {"memory_block": memory_block}
-        session_instructions = CONFIG['openai']['session_instructions'].format(**instruction_params)
-        transcription_instructions = CONFIG['openai']['transcription_instructions'].format(**self.instruction_params)
+        session_instructions = CONFIG['prompts']['session'].format(**instruction_params)
+        transcription_instructions = CONFIG['prompts']['transcription'].format(**self.instruction_params)
 
-        session_config = CONFIG['openai']['session_config'].copy()
+        session_config = CONFIG["openai"]["requests"]["session"].copy()
         session_config['session']['instructions'] = session_instructions
         session_config['session']['audio']['input']['transcription']['prompt'] = transcription_instructions
 
@@ -98,21 +100,14 @@ class ConversationSession:
 
         await self.websocket.send(json.dumps(session_config))
 
-    async def _add_user_message(self, transcript):
-        """Add user transcript to conversation history"""
-        message = {
-            "type": "conversation.item.create",
-            "item": {
-                "type": "message",
-                "role": "user",
-                "content": [{"type": "input_text", "text": transcript}],
-            },
-        }
-        await self.websocket.send(json.dumps(message))
+    async def _create_response(self, instructions, transcript=None):
+        """Create response with given instructions and optional transcript"""
+        if transcript:
+            message = CONFIG["openai"]["requests"]["user_message"].copy()
+            message['item']['content'][0]['text'] = transcript
+            await self.websocket.send(json.dumps(message))
 
-    async def _create_response(self, instructions):
-        """Create response with given instructions"""
-        response_config = CONFIG['openai']['response_config'].copy()
+        response_config = CONFIG["openai"]["requests"]["response"].copy()
         response_config['response']['instructions'] = instructions
         
         logger.debug('⚙️  Response instructions: %s', instructions)
@@ -121,7 +116,7 @@ class ConversationSession:
 
     def _listen(self):
         """Start audio capture with handler"""
-        blocksize = int(CONFIG['openai']['sample_rate'] * CONFIG['openai']['chunk_duration_ms'] / 1000)
+        blocksize = int(self.openai['sample_rate'] * self.openai['chunk_duration_ms'] / 1000)
 
         def audio_callback(indata, _frames, _time, status):
             if status:
@@ -135,11 +130,11 @@ class ConversationSession:
                     pass
 
         AUDIO.start_recording(
-            sample_rate=CONFIG['openai']['sample_rate'],
+            sample_rate=self.openai['sample_rate'],
             dtype='int16',
             blocksize=blocksize,
             callback=audio_callback,
-            input_gain=CONFIG['openai']['input_gain']
+            input_gain=self.openai['input_gain']
         )
 
     async def _send_audio(self):
@@ -161,7 +156,7 @@ class ConversationSession:
         if self.response_chunks:
             combined_audio = b''.join(self.response_chunks)
             logger.info("🔊 Response playback started")
-            AUDIO.start_playing(combined_audio, CONFIG['openai']['sample_rate'])
+            AUDIO.start_playing(combined_audio, self.openai['sample_rate'])
 
             async def playback_completion():
                 while AUDIO.is_playing():
@@ -190,6 +185,55 @@ class ConversationSession:
             return True
         return False
 
+    def _on_response_created(self):
+        self.is_response_pending = True
+
+    def _on_speech_started(self):
+        logger.info("🔊 VAD: user speech started")
+        AUDIO.stop_playing()
+        if self.display:
+            self.display.set_speaking(False)
+
+    def _on_speech_stopped(self):
+        logger.info("🔊 VAD: user speech ended")
+        AUDIO.start_playing(CONFIG["sounds"]["sent"])
+
+    async def _on_transcription_completed(self, data):
+        transcript = data.get("transcript", "")
+        self._record_transcript("user", transcript, "🗣️  You said: %s", "user")
+        response_instructions = self._build_response_instructions(transcript)
+
+        await self._create_response(response_instructions, transcript)
+
+    def _on_output_audio_delta(self, data):
+        if audio_base64 := data.get("delta", ""):
+            audio_bytes = base64.b64decode(audio_base64)
+            self.response_chunks.append(audio_bytes)
+
+    def _on_output_transcript_done(self, data):
+        transcript = data.get("transcript", "")
+        self._record_transcript("assistant", transcript, "🤖 Choco says: %s", "choco")
+
+    async def _on_response_done(self):
+        self.is_response_pending = False
+        if self.display:
+            self.display.set_speaking(True)
+
+        await self._play_response()
+
+        if self.is_greeting:
+            return self.Result.GREETED
+        if self.is_terminating:
+            AUDIO.stop_recording()
+            return self.Result.GOODBYE
+        return None
+
+    def _on_error(self, data):
+        logger.error("❌ OpenAI API Error: %s", data)
+        self.is_active = False
+        AUDIO.stop_recording()
+        return self.Result.ERROR
+
     async def _handle_message(self, data):
         """Handle incoming message from OpenAI"""
         Result = self.Result
@@ -201,87 +245,50 @@ class ConversationSession:
 
         match event_type:
             case "response.created":
-                self.is_response_pending = True
-
+                self._on_response_created()
             case "input_audio_buffer.speech_started":
-                logger.info("🔊 VAD: user speech started")
-
-                # User is speaking; interrupt any ongoing response
-                AUDIO.stop_playing()
-
-                # Stop speaking animation when interrupted
-                if self.display:
-                    self.display.set_speaking(False)
-
+                self._on_speech_started()
             case "input_audio_buffer.speech_stopped":
-                logger.info("🔊 VAD: user speech ended")
-
-                AUDIO.start_playing(CONFIG['sounds']['sent'])
-
+                self._on_speech_stopped()
             case "conversation.item.input_audio_transcription.completed":
-                transcript = data.get("transcript", "")
-                logger.info("🗣️  You said: %s", transcript)
-                self.last_user_transcript = transcript
-                if transcript:
-                    self.transcript_log.append({"role": "user", "text": transcript})
-
-                if self.display:
-                    self.display.add_transcript("user", transcript)
-
-                # Check for sleep words using fuzzy matching
-                is_sleep_word = self._is_sleep_word(transcript, CONFIG['session']['sleep_word_threshold'])
-                if is_sleep_word:
-                    logger.info("💤 Sleep word detected: '%s'", transcript)
-                    self.is_terminating = True
-                    response_instructions = CONFIG["openai"]["goodbye_instructions"].format(**self.instruction_params)
-                else:
-                    detected_language = detect_language_code(transcript)
-                    logger.debug("🔎 Detected language: %s", detected_language)
-                    translation_required = detected_language == self.native_lang_code
-                    native_language = CONFIG['languages'][self.profile["native_language"]]['language_name']
-                    instruction_params = self.instruction_params | {
-                        "translation_instruction": f"- Add a full translation of your response to {native_language}" if translation_required else "",
-                    }
-                    response_instructions = CONFIG["openai"]["response_instructions"].format(**instruction_params)
-
-                await self._add_user_message(transcript)
-                await self._create_response(response_instructions)
+                await self._on_transcription_completed(data)
             case "response.output_audio.delta":
-                if audio_base64 := data.get("delta", ""):
-                    audio_bytes = base64.b64decode(audio_base64)
-                    self.response_chunks.append(audio_bytes)
-
+                self._on_output_audio_delta(data)
             case "response.output_audio_transcript.done":
-                transcript = data.get("transcript", "")
-                logger.info("🤖 Choco says: %s", transcript)
-                self.last_assistant_transcript = transcript
-                if transcript:
-                    self.transcript_log.append({"role": "assistant", "text": transcript})
-
-                if self.display:
-                    self.display.add_transcript("choco", transcript)
-
+                self._on_output_transcript_done(data)
             case "response.done":
-                self.is_response_pending = False
-
-                if self.display:
-                    self.display.set_speaking(True)
-
-                await self._play_response()
-
-                if self.is_greeting:
-                    return Result.GREETED
-                if self.is_terminating:
-                    AUDIO.stop_recording()
-                    return Result.GOODBYE
-
+                return await self._on_response_done()
             case "error":
-                logger.error("❌ OpenAI API Error: %s", data)
-                self.is_active = False
-                AUDIO.stop_recording()
-                return Result.ERROR
+                return self._on_error(data)
 
         return None
+
+    def _record_transcript(self, role, transcript, log_format, display_role):
+        logger.info(log_format, transcript)
+        if role == "user":
+            self.last_user_transcript = transcript
+        else:
+            self.last_assistant_transcript = transcript
+        if transcript:
+            self.transcript_log.append({"role": role, "text": transcript})
+        if self.display:
+            self.display.add_transcript(display_role, transcript)
+
+    def _build_response_instructions(self, transcript):
+        is_sleep_word = self._is_sleep_word(transcript, self.session_config['sleep_word_threshold'])
+        if is_sleep_word:
+            logger.info("💤 Sleep word detected: '%s'", transcript)
+            self.is_terminating = True
+            return CONFIG["prompts"]["goodbye"].format(**self.instruction_params)
+
+        detected_language = detect_language_code(transcript)
+        logger.debug("🔎 Detected language: %s", detected_language)
+        translation_required = detected_language == self.native_lang_code
+        native_language = CONFIG["languages"][self.profile["native_language"]]["language_name"]
+        instruction_params = self.instruction_params | {
+            "translation_instruction": f"- Add a full translation of your response to {native_language}" if translation_required else "",
+        }
+        return CONFIG["prompts"]["response"].format(**instruction_params)
 
     async def run(self):
         """Run conversation session"""
@@ -293,7 +300,7 @@ class ConversationSession:
             while self.is_active:
                 try:
                     # Short timeout for greeting, normal timeout for conversation
-                    timeout = CONFIG['session']['greeting_timeout'] if self.is_greeting else CONFIG['session']['conversation_timeout']
+                    timeout = self.session_config['greeting_timeout'] if self.is_greeting else self.session_config['conversation_timeout']
                     message = await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
                     data = json.loads(message)
                     result = await self._handle_message(data)

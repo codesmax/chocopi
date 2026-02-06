@@ -8,16 +8,16 @@ from chocopi.wakeword import WakeWordDetector
 from chocopi.conversation import ConversationSession
 from chocopi.display import create_display_manager
 from chocopi.language import warm_language_detector
-from chocopi.profiles import get_active_profile, get_profile_languages
 
 logger = logging.getLogger(__name__)
 
 
 class ChocoPi:
     def __init__(self):
-        self.profile = get_active_profile()
+        self.profile = CONFIG["profiles"][CONFIG["active_profile"]]
         self.wake_word_detector = WakeWordDetector()
-        profile_langs = get_profile_languages(self.profile)
+        profile_langs = set(self.profile["learning_languages"].keys())
+        profile_langs.add(self.profile["native_language"])
         self.wake_words = [
             CONFIG["languages"][lang]["wake_word"].lower()
             for lang in profile_langs
