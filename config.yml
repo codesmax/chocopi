@@ -89,10 +89,10 @@ prompts:
   transcription: >
     - Expect casual speech from a child in {native_language} and {learning_language}.
   response: >
-    - Keep responses to 2-4 sentences. End with a question.
+    - Try to keep responses to 2-4 sentences. Exception for stories. End with a question.
     - Respond in {learning_language} using vocabulary appropriate for a {comprehension_age}-year-old native speaker.
     - Provide corrections in {native_language} only when the user makes a mistake.
-    {translation_instruction}
+    {translation_prompt}
   greeting: >
     Greet the user with up to 5 words in {learning_language}. Keep it brief.
   goodbye: >

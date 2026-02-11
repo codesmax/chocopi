@@ -63,6 +63,8 @@ class ConversationSession:
         self.last_assistant_transcript = ""
         self.transcript_log = []
 
+
+    # --- API Helpers ---
     async def connect(self):
         """Connect to OpenAI Realtime API"""
         logger.info("🌐 Establishing connnection to Realtime API...")
@@ -114,6 +116,24 @@ class ConversationSession:
 
         await self.websocket.send(json.dumps(response_config))
 
+    def _build_response_instructions(self, transcript):
+        is_sleep_word = self._is_sleep_word(transcript, self.session_config['sleep_word_threshold'])
+        if is_sleep_word:
+            logger.info("💤 Sleep word detected: '%s'", transcript)
+            self.is_terminating = True
+            return CONFIG["prompts"]["goodbye"].format(**self.instruction_params)
+
+        detected_language = detect_language_code(transcript)
+        logger.debug("🔎 Detected language: %s", detected_language)
+        translation_required = detected_language == self.native_lang_code
+        native_language = CONFIG["languages"][self.profile["native_language"]]["language_name"]
+        instruction_params = self.instruction_params | {
+            "translation_prompt": f"- Add a translation of your full response to {native_language}" if translation_required else "",
+        }
+        return CONFIG["prompts"]["response"].format(**instruction_params)
+
+
+    # --- Audio Helpers ---
     def _listen(self):
         """Start audio capture with handler"""
         blocksize = int(self.openai['sample_rate'] * self.openai['chunk_duration_ms'] / 1000)
@@ -172,6 +192,8 @@ class ConversationSession:
             else:
                 asyncio.create_task(playback_completion())
 
+
+    # --- Transcript Helpers ---
     def _is_sleep_word(self, text, threshold=80):
         """Check if text contains a sleep word using fuzzy matching"""
         sleep_word = self.lang_config['sleep_word'].lower()
@@ -185,6 +207,18 @@ class ConversationSession:
             return True
         return False
 
+    def _record_transcript(self, role, transcript, log_format, display_role):
+        logger.info(log_format, transcript)
+        if role == "user":
+            self.last_user_transcript = transcript
+        else:
+            self.last_assistant_transcript = transcript
+        if transcript:
+            self.transcript_log.append({"role": role, "text": transcript})
+        if self.display:
+            self.display.add_transcript(display_role, transcript)
+
+    # --- Message Handlers ---
     def _on_response_created(self):
         self.is_response_pending = True
 
@@ -262,33 +296,6 @@ class ConversationSession:
                 return self._on_error(data)
 
         return None
-
-    def _record_transcript(self, role, transcript, log_format, display_role):
-        logger.info(log_format, transcript)
-        if role == "user":
-            self.last_user_transcript = transcript
-        else:
-            self.last_assistant_transcript = transcript
-        if transcript:
-            self.transcript_log.append({"role": role, "text": transcript})
-        if self.display:
-            self.display.add_transcript(display_role, transcript)
-
-    def _build_response_instructions(self, transcript):
-        is_sleep_word = self._is_sleep_word(transcript, self.session_config['sleep_word_threshold'])
-        if is_sleep_word:
-            logger.info("💤 Sleep word detected: '%s'", transcript)
-            self.is_terminating = True
-            return CONFIG["prompts"]["goodbye"].format(**self.instruction_params)
-
-        detected_language = detect_language_code(transcript)
-        logger.debug("🔎 Detected language: %s", detected_language)
-        translation_required = detected_language == self.native_lang_code
-        native_language = CONFIG["languages"][self.profile["native_language"]]["language_name"]
-        instruction_params = self.instruction_params | {
-            "translation_instruction": f"- Add a full translation of your response to {native_language}" if translation_required else "",
-        }
-        return CONFIG["prompts"]["response"].format(**instruction_params)
 
     async def run(self):
         """Run conversation session"""
