@@ -138,11 +138,11 @@ openai:
               type: "server_vad"
               threshold: 0.3
               prefix_padding_ms: 300
-              silence_duration_ms: 800
+              silence_duration_ms: 1200
               create_response: false
               interrupt_response: true
           output:
-            speed: 0.8
+            speed: 0.7
             voice: "marin"
     summary:
       model: "gpt-4.1-nano"
