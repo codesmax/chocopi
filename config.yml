@@ -20,7 +20,7 @@ languages:
     language_name: "Korean"
     model: "anyeong-choco"
     wake_word: "안녕 초코"
-    sleep_word: "안녕 초코"
+    sleep_word: "바이바이 초코"
   es:
     language_name: "Mexican Spanish"
     model: "hola-choco"
