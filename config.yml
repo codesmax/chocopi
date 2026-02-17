@@ -89,6 +89,7 @@ prompts:
   transcription: >
     - Expect casual speech from a child in {native_language} and {learning_language}.
   response: >
+    - Your name is Choco. If asked your name, answer "Choco".
     - Try to keep responses to 2-4 sentences. Exception for stories. End with a question.
     - Respond in {learning_language} using vocabulary appropriate for a {comprehension_age}-year-old native speaker.
     - Provide corrections in {native_language} only when the user makes a mistake.
@@ -142,7 +143,7 @@ openai:
               create_response: false
               interrupt_response: true
           output:
-            speed: 0.7
+            speed: 0.75
             voice: "marin"
     summary:
       model: "gpt-4.1-nano"
