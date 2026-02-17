@@ -297,6 +297,35 @@ class ConversationSession:
 
         return None
 
+    # --- Memory ---
+    async def persist_memory(self):
+        """Summarize and persist session memory."""
+        memory = self.memory
+        logger.info("🧠 Updating memory with latest conversation...")
+        if self.transcript_log:
+            try:
+                memory = await asyncio.to_thread(
+                    summarize_session,
+                    self.profile_name,
+                    self.profile,
+                    self.transcript_log,
+                    memory,
+                )
+            except Exception as exc:
+                logger.warning("Memory summarization error: %s", exc)
+                update_memory(memory, self.last_user_transcript, self.last_assistant_transcript)
+        else:
+            update_memory(memory, self.last_user_transcript, self.last_assistant_transcript)
+
+        try:
+            await asyncio.to_thread(save_memory, self.profile_name, memory)
+            logger.info("💾 Memory saved successfully.")
+        except Exception as exc:
+            logger.warning("Memory save error: %s", exc)
+            return
+        self.memory = memory
+
+    # --- Main Loop ---
     async def run(self):
         """Run conversation session"""
         Result = self.Result
@@ -336,21 +365,6 @@ class ConversationSession:
         except Exception as e:
             logger.error("⚠️  Error during conversation: %s", e)
         finally:
-            if self.transcript_log:
-                try:
-                    self.memory = await asyncio.to_thread(
-                        summarize_session,
-                        self.profile_name,
-                        self.profile,
-                        self.transcript_log,
-                        self.memory,
-                    )
-                except Exception as exc:
-                    logger.warning("Memory summarization error: %s", exc)
-                    update_memory(self.memory, self.last_user_transcript, self.last_assistant_transcript)
-            else:
-                update_memory(self.memory, self.last_user_transcript, self.last_assistant_transcript)
-            save_memory(self.profile_name, self.memory)
             AUDIO.stop_recording()
             if upload_task:
                 upload_task.cancel()

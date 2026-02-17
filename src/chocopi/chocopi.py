@@ -75,6 +75,8 @@ class ChocoPi:
                 if self.display:
                     self.display.set_active(False)
 
+                await session.persist_memory()
+
         except (KeyboardInterrupt, SystemExit):
             logger.info("\n👋 Shutting down...")
         except Exception as e:
