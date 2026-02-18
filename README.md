@@ -6,15 +6,7 @@ A voice-powered language tutor for kids, built for Raspberry Pi.
 
 ChocoPi listens for a wake word, then holds a live conversation to help children practice English, Korean, Spanish, or Chinese. Each language has its own wake word, sleep word, and teaching style — all configurable.
 
-## Demo
-<video src="https://github.com/codesmax/chocopi/releases/download/demo-video/chocopi-demo.mp4" width="600"/>
-
-https://github.com/codesmax/chocopi/releases/download/demo-video/chocopi-demo.mp4
-
-<video src="https://github.com/user-attachments/assets/7e72a294-3c8f-48a5-b8f6-ec7416c1d9a8" width="600"/>
-
 https://github.com/user-attachments/assets/7e72a294-3c8f-48a5-b8f6-ec7416c1d9a8
-
 
 ## How It Works
 
