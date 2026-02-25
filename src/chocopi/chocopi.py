@@ -29,6 +29,7 @@ class ChocoPi:
     def _wake_word_language(self, wake_word):
         """Get language configuration based on detected wake word"""
         for lang, config in CONFIG['languages'].items():
+            # Native language has no learning session; its wake word falls through to the default below
             if wake_word == config['model'] and lang != self.profile["native_language"]:
                 logger.info("⚙️  Session configured for: %s", config['language_name'])
                 return lang

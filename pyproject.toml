@@ -1,7 +1,7 @@
 [project]
 name = "chocopi"
 version = "0.1.0"
-description = "Raspberry Pi based smart speaker"
+description = "Voice-powered language tutor for kids, built for Raspberry Pi"
 authors = [
     {name = "Max Lee", email = "2389838+codesmax@users.noreply.github.com"}
 ]

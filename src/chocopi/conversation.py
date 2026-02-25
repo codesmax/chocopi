@@ -67,10 +67,10 @@ class ConversationSession:
     # --- API Helpers ---
     async def connect(self):
         """Connect to OpenAI Realtime API"""
-        logger.info("🌐 Establishing connnection to Realtime API...")
+        logger.info("🌐 Establishing connection to Realtime API...")
         openai_key = os.getenv('OPENAI_API_KEY')
         if not openai_key:
-            raise ValueError("OPENAI_API_KEY environment variable not set. Please add it to your .env file.")
+            raise ValueError("OPENAI_API_KEY is not set. Add it to your .env file or set it as an environment variable.")
         try:
             headers = {"Authorization": f"Bearer {openai_key}"}
             uri = f"wss://api.openai.com/v1/realtime?model={self.openai['model']}"
@@ -145,9 +145,8 @@ class ConversationSession:
                 try:
                     self.audio_queue.put_nowait(indata)
                 except queue.Full:
-                    # Drop frame if uploads fall behind
+                    # Drop frame if queue falls behind
                     logger.warning("⚠️  Audio queue full, dropping frame")
-                    pass
 
         AUDIO.start_recording(
             sample_rate=self.openai['sample_rate'],

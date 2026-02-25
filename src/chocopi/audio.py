@@ -94,7 +94,7 @@ class AudioManager:
         """Check if audio is currently playing"""
         try:
             return self.play_obj is not None and self.play_obj.is_playing()
-        except:
+        except Exception:
             return False
 
 
