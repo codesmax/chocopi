@@ -51,6 +51,7 @@ class ConversationSession:
         self.is_greeting = True
         self.is_terminating = False
         self.is_response_pending = False
+        self._playback_task = None
         self.native_lang_code = self.profile["native_language"].lower()
         self.instruction_params = {
             "user_age": self.profile["user_age"],
@@ -189,7 +190,7 @@ class ConversationSession:
             if self.is_greeting or self.is_terminating:
                 await playback_completion()
             else:
-                asyncio.create_task(playback_completion())
+                self._playback_task = asyncio.create_task(playback_completion())
 
 
     # --- Transcript Helpers ---
@@ -223,7 +224,10 @@ class ConversationSession:
 
     def _on_speech_started(self):
         logger.info("🔊 VAD: user speech started")
+        if self._playback_task and not self._playback_task.done():
+            self._playback_task.cancel()
         AUDIO.stop_playing()
+        self.response_chunks.clear()
         if self.display:
             self.display.set_speaking(False)
 
