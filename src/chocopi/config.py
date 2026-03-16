@@ -22,15 +22,6 @@ def _has_display():
 
     return False
 
-# Environment
-IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
-LOG_LEVEL = os.environ.get('CHOCO_LOG', 'INFO').upper()
-USE_DISPLAY = os.environ.get('CHOCO_DISPLAY') == '1' and _has_display()
-
-# Configure logging
-logging.basicConfig(format='[%(levelname)s:%(name)s] %(message)s', level=logging.WARNING)  # Silence third-party libraries
-logging.getLogger('chocopi').setLevel(getattr(logging, LOG_LEVEL))
-
 # Project root (../..)
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 MODELS_PATH = PROJECT_ROOT / 'models'
@@ -38,6 +29,18 @@ ASSETS_PATH = PROJECT_ROOT / 'assets'
 SOUNDS_PATH = ASSETS_PATH / 'sounds'
 IMAGES_PATH = ASSETS_PATH / 'images'
 FONTS_PATH = ASSETS_PATH / 'fonts'
+
+# Load environment variables
+load_dotenv(PROJECT_ROOT / '.env')
+
+# Environment
+IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
+LOG_LEVEL = os.getenv('CHOCO_LOG', 'INFO').upper()
+USE_DISPLAY = os.getenv('CHOCO_DISPLAY', '0') == '1' and _has_display()
+
+# Configure logging
+logging.basicConfig(format='[%(levelname)s:%(name)s] %(message)s', level=logging.WARNING)  # Silence third-party libraries
+logging.getLogger('chocopi').setLevel(getattr(logging, LOG_LEVEL))
 
 # Load configuration
 try:
@@ -47,6 +50,3 @@ except FileNotFoundError:
     raise SystemExit("config.yml not found. Make sure you're running from the project root.")
 except yaml.YAMLError as e:
     raise SystemExit(f"config.yml is invalid: {e}")
-
-# Load environment variables
-load_dotenv(PROJECT_ROOT / '.env')

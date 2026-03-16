@@ -1,5 +1,12 @@
-.env
-.venv
+# python environment
 __pycache__/
 *.egg-info/
+.venv/
+
+# local data
 data/
+
+# user settings
+.vscode/
+.env
+ruff.toml
