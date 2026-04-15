@@ -41,6 +41,12 @@ session:
   greeting_timeout: 5
   conversation_timeout: 90
   sleep_word_threshold: 80
+  max_turns: 300
+  max_duration_minutes: 90
+  echo_detection:
+    overlap_threshold: 80  # min fuzz.partial_ratio to flag a turn as an echo
+    max_words: 4            # only flag short responses as potential echoes
+    consecutive_limit: 5   # end session after this many consecutive echo turns
 
 summary:
   max_chars: 20000

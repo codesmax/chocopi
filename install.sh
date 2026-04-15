@@ -140,6 +140,15 @@ if [[ -f "${CHOCOPI_INSTALL_DIR}/install/wireplumber/${WP_CONFIG_FILE}" ]]; then
     success "WirePlumber Bluetooth config installed"
 fi
 
+# Install PipeWire echo cancellation config
+PW_CONFIG_DIR="${CHOCOPI_HOME}/.config/pipewire/pipewire.conf.d"
+PW_EC_SRC="${CHOCOPI_INSTALL_DIR}/install/pipewire/99-echo-cancel.conf"
+if [[ -f "${PW_EC_SRC}" ]]; then
+    sudo -u "${CHOCOPI_USER}" mkdir -p "${PW_CONFIG_DIR}"
+    sudo -u "${CHOCOPI_USER}" cp "${PW_EC_SRC}" "${PW_CONFIG_DIR}/"
+    success "PipeWire echo cancellation config installed"
+fi
+
 # Restart WirePlumber to pick up Bluetooth config
 info "Restarting WirePlumber to load Bluetooth configuration..."
 sudo -u "${CHOCOPI_USER}" XDG_RUNTIME_DIR=/run/user/$(id -u "${CHOCOPI_USER}") systemctl --user restart wireplumber

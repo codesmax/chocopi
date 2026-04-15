@@ -6,6 +6,7 @@ import logging
 import os
 import queue
 import re
+import time
 import numpy as np
 import websockets
 from enum import Enum
@@ -63,6 +64,9 @@ class ConversationSession:
         self.last_user_transcript = ""
         self.last_assistant_transcript = ""
         self.transcript_log = []
+        self.turn_count = 0
+        self.session_start_time = None
+        self._consecutive_echo_turns = 0
 
 
     # --- API Helpers ---
@@ -194,6 +198,17 @@ class ConversationSession:
 
 
     # --- Transcript Helpers ---
+    def _is_echo(self, transcript):
+        """Return True if a short user transcript looks like mic feedback of the last response."""
+        echo_cfg = self.session_config.get('echo_detection', {})
+        max_words = echo_cfg.get('max_words', 4)
+        threshold = echo_cfg.get('overlap_threshold', 80)
+        if not transcript or not self.last_assistant_transcript:
+            return False
+        if len(transcript.split()) > max_words:
+            return False
+        return fuzz.partial_ratio(transcript.lower(), self.last_assistant_transcript.lower()) >= threshold
+
     def _is_sleep_word(self, text, threshold=80):
         """Check if text contains a sleep word using fuzzy matching"""
         sleep_word = self.lang_config['sleep_word'].lower()
@@ -238,8 +253,33 @@ class ConversationSession:
     async def _on_transcription_completed(self, data):
         transcript = data.get("transcript", "")
         self._record_transcript("user", transcript, "🗣️  You said: %s", "user")
-        response_instructions = self._build_response_instructions(transcript)
 
+        # Echo/feedback loop detection
+        echo_cfg = self.session_config.get('echo_detection', {})
+        consecutive_limit = echo_cfg.get('consecutive_limit', 5)
+        if self._is_echo(transcript):
+            self._consecutive_echo_turns += 1
+            logger.debug("🔁 Echo candidate (%d/%d): '%s'", self._consecutive_echo_turns, consecutive_limit, transcript)
+            if self._consecutive_echo_turns >= consecutive_limit:
+                logger.warning("🔁 Echo loop detected after %d consecutive turns, ending session", self._consecutive_echo_turns)
+                self.is_terminating = True
+                await self._create_response(CONFIG["prompts"]["goodbye"].format(**self.instruction_params))
+                return
+        else:
+            self._consecutive_echo_turns = 0
+
+        # Turn and duration limits
+        self.turn_count += 1
+        max_turns = self.session_config.get('max_turns')
+        max_duration = self.session_config.get('max_duration_minutes')
+        elapsed = (time.monotonic() - self.session_start_time) / 60 if self.session_start_time else 0
+        if (max_turns and self.turn_count >= max_turns) or (max_duration and elapsed >= max_duration):
+            logger.warning("⏲️  Session limit reached (turns=%d, elapsed=%.1fm), ending session", self.turn_count, elapsed)
+            self.is_terminating = True
+            await self._create_response(CONFIG["prompts"]["goodbye"].format(**self.instruction_params))
+            return
+
+        response_instructions = self._build_response_instructions(transcript)
         await self._create_response(response_instructions, transcript)
 
     def _on_output_audio_delta(self, data):
@@ -347,6 +387,7 @@ class ConversationSession:
                     # Transition to conversation after greeting
                     if self.is_greeting and result == Result.GREETED:
                         self.is_greeting = False
+                        self.session_start_time = time.monotonic()
                         logger.info("👂 Choco is listening...")
                         self._listen()  # Start recording synchronously
                         upload_task = asyncio.create_task(self._send_audio())
