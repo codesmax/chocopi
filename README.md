@@ -160,7 +160,7 @@ data/                       # Per-profile memory files (gitignored)
 ## Known Issues
 
 - **Wake word false activations** - nearby environmental noise can trigger false activations of wake words. Limit supported languages to those being used and keep microphone away from TVs and other sources of loud, continuous audio.
-- **Speech comprehension** - issue is variable depending on environment and microphone used. Experiment with `input_gain`, VAD and noise reduction settings.
+- **Speech comprehension** - issue is variable depending on environment and microphone used. Experiment with VAD and noise reduction settings.
 - **Python 3.11 only** — `tflite-runtime` (required by OpenWakeWord) has no wheels for Python 3.12+. This is an upstream limitation with no current workaround.
 - **Windows** — works, but the `./chocopi` bash launcher isn't usable; run `python -m chocopi` directly instead (or use WSL).
 - **Bluetooth mic dropouts** — if the microphone stops working after a reboot or OS update, the device may have reverted to the A2DP profile. Re-connect and confirm it's using HSP/HFP (`bluetoothctl`).

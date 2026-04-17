@@ -229,7 +229,7 @@ def _build_summary_payload(profile, transcript_text, memory):
     if summary:
         transcript_text = f"Existing summary: {summary}\n\n{transcript_text}"
 
-    payload = copy.deepcopy(CONFIG["openai"]["requests"]["summary"])
+    payload = copy.deepcopy(CONFIG["summary_model"])
     payload["instructions"] = instructions
     payload["input"] = [
         {

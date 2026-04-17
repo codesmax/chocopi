@@ -90,13 +90,6 @@ class AudioManager:
         except Exception as e:
             logger.warning("⚠️  Error stopping playback: %s", e)
 
-    def is_playing(self):
-        """Check if audio is currently playing"""
-        try:
-            return self.play_obj is not None and self.play_obj.is_playing()
-        except Exception:
-            return False
-
 
 # Global audio manager instance
 AUDIO = AudioManager()

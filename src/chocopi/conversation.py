@@ -1,18 +1,32 @@
-"""Conversation session with OpenAI Realtime API"""
+"""Conversation session powered by Pipecat"""
 import asyncio
-import base64
-import json
 import logging
 import os
-import queue
 import re
 import time
-import numpy as np
-import websockets
-from enum import Enum
+
+from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame,
+    EndFrame,
+    LLMContextFrame,
+    LLMFullResponseEndFrame,
+    LLMFullResponseStartFrame,
+    LLMRunFrame,
+    LLMTextFrame,
+    TranscriptionFrame,
+    UserStoppedSpeakingFrame,
+)
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.runner import PipelineRunner
+from pipecat.pipeline.task import PipelineTask
+from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+from pipecat.utils.time import time_now_iso8601
 from rapidfuzz import fuzz
-from chocopi.config import CONFIG
+
 from chocopi.audio import AUDIO
+from chocopi.config import CONFIG
 from chocopi.language import detect_language_code
 from chocopi.memory import (
     build_memory_block,
@@ -25,204 +39,401 @@ from chocopi.memory import (
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Provider factory
+# ---------------------------------------------------------------------------
+
+def _create_llm_service(provider_name, provider_config, session_instructions, transcription_instructions=""):
+    """
+    Instantiate the Pipecat LLM service for the given provider.
+
+    Returns (service, set_response_instructions_fn) where set_response_instructions_fn(str)
+    stores per-response instructions that will be injected into the next response.create call.
+    """
+    if provider_name == "openai_realtime":
+        from pipecat.services.openai.realtime.llm import OpenAIRealtimeLLMService as _Base
+        from pipecat.services.openai.realtime.events import (
+            AudioConfiguration,
+            AudioInput,
+            AudioOutput,
+            InputAudioNoiseReduction,
+            InputAudioTranscription,
+            ResponseCreateEvent,
+            SessionProperties,
+            SessionUpdateEvent,
+            TurnDetection,
+        )
+
+        class OpenAIRealtimeLLMService(_Base):
+            """
+            Extends the base service with four additions:
+            - LLMRunFrame triggers _create_response() (manual response control)
+            - TranscriptionFrame re-pushed DOWNSTREAM so ChocoPiProcessor can log it
+              (the base class pushes it UPSTREAM only)
+            - send_client_event intercepts ResponseCreateEvent to inject per-response
+              instructions into ResponseProperties.instructions (adds to session
+              instructions rather than replacing them), and patches SessionUpdateEvent
+              to include create_response=False in server_vad turn_detection (Pipecat's
+              TurnDetection model omits these fields, so they must be added post-serialization)
+            - _truncate_current_audio_response disabled to prevent invalid_value server
+              errors that exit the receive loop; these arise when Pipecat's byte-count
+              exceeds what the server committed before an interruption
+            """
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self._response_instructions: str | None = None
+
+            async def process_frame(self, frame, direction):
+                if isinstance(frame, LLMRunFrame):
+                    await self._create_response()
+                    return
+                await super().process_frame(frame, direction)
+
+            async def handle_evt_input_audio_transcription_completed(self, evt):
+                await super().handle_evt_input_audio_transcription_completed(evt)
+                await self.push_frame(
+                    TranscriptionFrame(evt.transcript, "", time_now_iso8601()),
+                    FrameDirection.DOWNSTREAM,
+                )
+
+            async def send_client_event(self, event):
+                if isinstance(event, ResponseCreateEvent) and self._response_instructions:
+                    instructions, self._response_instructions = self._response_instructions, None
+                    event = event.model_copy(update={
+                        "response": event.response.model_copy(
+                            update={"instructions": instructions}
+                        )
+                    })
+                if isinstance(event, ResponseCreateEvent):
+                    logger.debug(
+                        "📤 response.create instructions: %s",
+                        event.response.instructions if event.response else None,
+                    )
+                    await super().send_client_event(event)
+                    return
+
+                if isinstance(event, SessionUpdateEvent):
+                    # Pydantic's union validation on AudioInput.turn_detection coerces
+                    # our TurnDetection instance to the base class schema, dropping
+                    # create_response and interrupt_response. Patch the serialized dict.
+                    data = event.model_dump(exclude_none=True)
+                    try:
+                        td = data["session"]["audio"]["input"]["turn_detection"]
+                        if isinstance(td, dict) and td.get("type") == "server_vad":
+                            td["create_response"] = False
+                            td["interrupt_response"] = True
+                    except (KeyError, TypeError) as e:
+                        logger.warning("⚠️  Could not patch turn_detection in session.update: %s", e)
+                    logger.debug("📤 session.update turn_detection: %s",
+                                 data.get("session", {}).get("audio", {}).get("input", {}).get("turn_detection"))
+                    await self._ws_send(data)
+                    return
+
+                await super().send_client_event(event)
+
+            async def _truncate_current_audio_response(self):
+                self._current_audio_response = None
+
+        pc = provider_config
+        td = pc.get("turn_detection", {})
+        noise_red = pc.get("noise_reduction")
+
+        service = OpenAIRealtimeLLMService(
+            api_key=os.getenv(pc["api_key_env"]),
+            settings=OpenAIRealtimeLLMService.Settings(
+                model=pc["model"],
+                system_instruction=session_instructions,
+                session_properties=SessionProperties(
+                    audio=AudioConfiguration(
+                        input=AudioInput(
+                            transcription=InputAudioTranscription(
+                                model=pc.get("transcription_model", "gpt-4o-mini-transcribe"),
+                                prompt=transcription_instructions,
+                            ),
+                            noise_reduction=InputAudioNoiseReduction(type=noise_red) if noise_red else None,
+                            turn_detection=TurnDetection(
+                                threshold=td.get("threshold", 0.3),
+                                prefix_padding_ms=td.get("prefix_padding_ms", 300),
+                                silence_duration_ms=td.get("silence_duration_ms", 1200),
+                            ) if td else None,
+                        ),
+                        output=AudioOutput(
+                            voice=pc.get("voice", "alloy"),
+                            speed=pc.get("output_speed", 1.0),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        def set_response_instructions(instructions: str):
+            service._response_instructions = instructions
+
+        return service, set_response_instructions
+
+    elif provider_name == "gemini_live":
+        from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+
+        service = GeminiLiveLLMService(
+            api_key=os.getenv(provider_config["api_key_env"]),
+            model=provider_config.get("model", "gemini-2.0-flash-live"),
+            settings=GeminiLiveLLMService.Settings(
+                voice=provider_config.get("voice", "Aoede"),
+                system_instruction=session_instructions,
+            ),
+        )
+
+        def set_response_instructions(instructions: str):
+            pass  # TODO: implement for Gemini Live
+
+        return service, set_response_instructions
+
+    elif provider_name == "ultravox":
+        from pipecat.services.ultravox.llm import OneShotInputParams, UltravoxRealtimeLLMService
+
+        service = UltravoxRealtimeLLMService(
+            params=OneShotInputParams(
+                api_key=os.getenv(provider_config["api_key_env"]),
+                system_prompt=session_instructions,
+                voice=provider_config.get("voice", "Mark"),
+                model=provider_config.get("model", "fixie-ai/ultravox-70B"),
+            )
+        )
+
+        def set_response_instructions(instructions: str):
+            pass  # TODO: implement for Ultravox
+
+        return service, set_response_instructions
+
+    else:
+        raise ValueError(f"Unknown provider: {provider_name!r}")
+
+
+# ---------------------------------------------------------------------------
+# Pipeline processor
+# ---------------------------------------------------------------------------
+
+class ChocoPiProcessor(FrameProcessor):
+    """
+    Handles ChocoPi-specific logic as a Pipecat pipeline processor.
+
+    Response flow:
+    - UserStoppedSpeakingFrame  → play alert sound (response deferred until transcript arrives)
+    - TranscriptionFrame        → log, detect echo/sleep, detect language, trigger _respond()
+    - LLMFullResponseEndFrame   → log assistant transcript; handle termination sequence
+    - BotStoppedSpeakingFrame   → stop display animation (travels UPSTREAM, not filtered by direction)
+    """
+
+    def __init__(self, session: "ConversationSession"):
+        super().__init__()
+        self._s = session
+        self._task: PipelineTask | None = None
+        self._assistant_text_buf: list[str] = []
+        self._is_responding = False   # guard against double response.create
+        self._goodbye_sent = False    # two-stage termination: goodbye → EndFrame
+
+    def set_task(self, task: PipelineTask) -> None:
+        self._task = task
+
+    async def process_frame(self, frame, direction):
+        await super().process_frame(frame, direction)
+
+        # BotStoppedSpeakingFrame travels UPSTREAM from output transport — handle
+        # it outside the DOWNSTREAM guard so animation stops when audio finishes.
+        if isinstance(frame, BotStoppedSpeakingFrame):
+            if self._s.display:
+                self._s.display.set_speaking(False)
+        elif direction == FrameDirection.DOWNSTREAM:
+            match frame:
+                case UserStoppedSpeakingFrame():
+                    logger.debug("👂 Detected user stopped speaking")
+                    AUDIO.start_playing(CONFIG["sounds"]["sent"])
+                    # _respond() is called in _on_transcript after language detection
+
+                case LLMFullResponseStartFrame():
+                    # Don't stop alert sound here — LLMFullResponseStartFrame fires
+                    # the instant response.create is sent, not when audio arrives.
+                    # sent.wav is short enough to complete on its own before playback starts.
+                    self._is_responding = True
+                    if self._s.display:
+                        self._s.display.set_speaking(True)
+
+                case TranscriptionFrame():
+                    await self._on_transcript(frame.text)
+
+                case LLMTextFrame():
+                    self._assistant_text_buf.append(frame.text)
+
+                case LLMFullResponseEndFrame():
+                    self._is_responding = False
+                    await self._on_response_done()
+
+        await self.push_frame(frame, direction)
+
+    async def _respond(self, instructions: str | None = None) -> None:
+        """Trigger a response with the given per-response instructions."""
+        s = self._s
+        s._set_response_instructions(instructions or s._default_response_instructions)
+        await self._task.queue_frames([LLMRunFrame()])
+
+    async def _on_transcript(self, transcript: str):
+        s = self._s
+        s._record_transcript("user", transcript, "🗣️  You said: %s", "user")
+
+        if s.is_greeting:
+            return
+
+        # Echo detection
+        echo_cfg = s.session_config.get("echo_detection", {})
+        if s._is_echo(transcript):
+            s._consecutive_echo_turns += 1
+            logger.debug(
+                "🔁 Echo candidate (%d/%d): '%s'",
+                s._consecutive_echo_turns, echo_cfg.get("consecutive_limit", 5), transcript,
+            )
+            if s._consecutive_echo_turns >= echo_cfg.get("consecutive_limit", 5):
+                logger.warning("🔁 Echo loop detected after %d turns", s._consecutive_echo_turns)
+                s.is_terminating = True
+        else:
+            s._consecutive_echo_turns = 0
+
+        # Sleep word detection
+        if not s.is_terminating and s._is_sleep_word(transcript, s.session_config["sleep_word_threshold"]):
+            logger.info("💤 Sleep word detected: '%s'", transcript)
+            s.is_terminating = True
+
+        # Language detection → compute instructions for this turn
+        instructions = s._default_response_instructions
+        if not s.is_terminating:
+            detected_language = detect_language_code(transcript)
+            logger.debug("🔎 Detected language: %s", detected_language)
+            if detected_language == s.native_lang_code:
+                native_language = CONFIG["languages"][s.profile["native_language"]]["language_name"]
+                translation_prompt = f"- Add a translation of your full response to {native_language}"
+            else:
+                translation_prompt = ""
+            instructions = s._build_response_instructions(translation_prompt)
+
+        if not self._is_responding:
+            await self._respond(instructions)
+
+    async def _on_response_done(self):
+        s = self._s
+        transcript = "".join(self._assistant_text_buf).strip()
+        self._assistant_text_buf.clear()
+        s._record_transcript("assistant", transcript, "🤖 Choco says: %s", "choco")
+
+        if s.is_greeting:
+            s.is_greeting = False
+            s.session_start_time = time.monotonic()
+            logger.info("👂 Choco is listening...")
+            return
+
+        if s.is_terminating:
+            if not self._goodbye_sent:
+                self._goodbye_sent = True
+                await self._respond(s._build_goodbye_instructions())
+            else:
+                await self._task.queue_frames([EndFrame()])
+
+
+# ---------------------------------------------------------------------------
+# Conversation session
+# ---------------------------------------------------------------------------
+
 class ConversationSession:
-    """Conversation session with OpenAI Realtime API"""
+    """Conversation session backed by a Pipecat voice LLM pipeline."""
 
-    class Result(Enum):
-        """Result codes for message handling"""
-        GREETED = "greeted"
-        GOODBYE = "goodbye"
-        ERROR = "error"
-
-    def __init__(self, learning_language='ko', profile=None, display=None):
+    def __init__(self, learning_language="ko", profile=None, display=None):
         if profile is None:
             raise ValueError("ConversationSession requires a profile configuration")
-        self.openai = CONFIG["openai"]
+
+        provider_name = CONFIG["active_provider"]
+        provider_config = CONFIG["providers"][provider_name]
+
         self.session_config = CONFIG["session"]
         self.profile = profile
-        self.profile_name = self.profile.get("name", "default").lower()
+        self.profile_name = profile.get("name", "default").lower()
         self.memory = load_memory(self.profile_name)
         self.lang_config = CONFIG["languages"][learning_language]
-        self.comprehension_age = self.profile["learning_languages"][learning_language]["comprehension_age"]
-        self.websocket = None
-        self.response_chunks = []
-        self.audio_queue = queue.Queue()
+        self.comprehension_age = profile["learning_languages"][learning_language]["comprehension_age"]
         self.display = display
-        self.is_active = True
+
         self.is_greeting = True
         self.is_terminating = False
-        self.is_response_pending = False
-        self._playback_task = None
-        self.native_lang_code = self.profile["native_language"].lower()
+        self.native_lang_code = profile["native_language"].lower()
         self.instruction_params = {
-            "user_age": self.profile["user_age"],
-            "native_language": CONFIG["languages"][self.profile["native_language"]]["language_name"],
-            "learning_language": self.lang_config['language_name'],
+            "user_age": profile["user_age"],
+            "native_language": CONFIG["languages"][profile["native_language"]]["language_name"],
+            "learning_language": self.lang_config["language_name"],
             "comprehension_age": self.comprehension_age,
-            "sleep_word": self.lang_config['sleep_word']
+            "sleep_word": self.lang_config["sleep_word"],
         }
+
         self.last_user_transcript = ""
         self.last_assistant_transcript = ""
         self.transcript_log = []
-        self.turn_count = 0
         self.session_start_time = None
         self._consecutive_echo_turns = 0
 
-
-    # --- API Helpers ---
-    async def connect(self):
-        """Connect to OpenAI Realtime API"""
-        logger.info("🌐 Establishing connection to Realtime API...")
-        openai_key = os.getenv('OPENAI_API_KEY')
-        if not openai_key:
-            raise ValueError("OPENAI_API_KEY is not set. Add it to your .env file or set it as an environment variable.")
-        try:
-            headers = {"Authorization": f"Bearer {openai_key}"}
-            uri = f"wss://api.openai.com/v1/realtime?model={self.openai['model']}"
-            self.websocket = await websockets.connect(uri, additional_headers=headers)
-
-            # Send session config
-            await self._update_session()
-
-            # Create and send greeting response to initiate conversation
-            greeting_instructions = CONFIG['prompts']['greeting'].format(**self.instruction_params)
-            await self._create_response(greeting_instructions)
-        except Exception as e:
-            logger.error("❌ Failed to connect to OpenAI API: %s", e)
-            raise
-
-    async def _update_session(self):
-        """Update session configuration with language-specific instructions"""
+        # Built once; used as the base for all per-response instruction strings
         memory_block = build_memory_block(self.memory)
-        instruction_params = self.instruction_params | {"memory_block": memory_block}
-        session_instructions = CONFIG['prompts']['session'].format(**instruction_params)
-        transcription_instructions = CONFIG['prompts']['transcription'].format(**self.instruction_params)
+        self._session_instructions = CONFIG["prompts"]["session"].format(
+            **self.instruction_params, memory_block=memory_block
+        )
+        transcription_instructions = CONFIG["prompts"]["transcription"].format(
+            **self.instruction_params
+        )
+        logger.debug("⚙️  Session instructions: %s", self._session_instructions)
 
-        session_config = CONFIG["openai"]["requests"]["session"].copy()
-        session_config['session']['instructions'] = session_instructions
-        session_config['session']['audio']['input']['transcription']['prompt'] = transcription_instructions
+        # Default response instructions (no translation)
+        self._default_response_instructions = self._build_response_instructions("")
 
-        logger.debug('⚙️  Session instructions: %s', session_instructions)
-        logger.debug('⚙️  Transcription instructions: %s', transcription_instructions)
-
-        await self.websocket.send(json.dumps(session_config))
-
-    async def _create_response(self, instructions, transcript=None):
-        """Create response with given instructions and optional transcript"""
-        if transcript:
-            message = CONFIG["openai"]["requests"]["user_message"].copy()
-            message['item']['content'][0]['text'] = transcript
-            await self.websocket.send(json.dumps(message))
-
-        response_config = CONFIG["openai"]["requests"]["response"].copy()
-        response_config['response']['instructions'] = instructions
-        
-        logger.debug('⚙️  Response instructions: %s', instructions)
-
-        await self.websocket.send(json.dumps(response_config))
-
-    def _build_response_instructions(self, transcript):
-        is_sleep_word = self._is_sleep_word(transcript, self.session_config['sleep_word_threshold'])
-        if is_sleep_word:
-            logger.info("💤 Sleep word detected: '%s'", transcript)
-            self.is_terminating = True
-            return CONFIG["prompts"]["goodbye"].format(**self.instruction_params)
-
-        detected_language = detect_language_code(transcript)
-        logger.debug("🔎 Detected language: %s", detected_language)
-        translation_required = detected_language == self.native_lang_code
-        native_language = CONFIG["languages"][self.profile["native_language"]]["language_name"]
-        instruction_params = self.instruction_params | {
-            "translation_prompt": f"- Add a translation of your full response to {native_language}" if translation_required else "",
-        }
-        return CONFIG["prompts"]["response"].format(**instruction_params)
-
-
-    # --- Audio Helpers ---
-    def _listen(self):
-        """Start audio capture with handler"""
-        blocksize = int(self.openai['sample_rate'] * self.openai['chunk_duration_ms'] / 1000)
-
-        def audio_callback(indata, _frames, _time, status):
-            if status:
-                logger.warning("⚠️  Audio device status: %s", status)
-            if self.is_active:
-                try:
-                    self.audio_queue.put_nowait(indata)
-                except queue.Full:
-                    # Drop frame if queue falls behind
-                    logger.warning("⚠️  Audio queue full, dropping frame")
-
-        AUDIO.start_recording(
-            sample_rate=self.openai['sample_rate'],
-            dtype='int16',
-            blocksize=blocksize,
-            callback=audio_callback,
-            input_gain=self.openai['input_gain']
+        self._llm_service, self._set_response_instructions = _create_llm_service(
+            provider_name, provider_config, self._session_instructions, transcription_instructions
         )
 
-    async def _send_audio(self):
-        """Process audio from queue and send"""
-        while self.is_active:
-            if not self.audio_queue.empty():
-                try:
-                    audio_data = self.audio_queue.get_nowait()
-                    b64_chunk = base64.b64encode(audio_data.tobytes()).decode('utf-8')
-                    message = {"type": "input_audio_buffer.append", "audio": b64_chunk}
-                    await self.websocket.send(json.dumps(message))
-                except queue.Empty:
-                    pass
-            # Yield to event loop
-            await asyncio.sleep(0.01)
+    # --- Instruction builders ---
 
-    async def _play_response(self):
-        """Play collected audio response and optionally wait for completion"""
-        if self.response_chunks:
-            combined_audio = b''.join(self.response_chunks)
-            logger.info("🔊 Response playback started")
-            AUDIO.start_playing(combined_audio, self.openai['sample_rate'])
+    def _build_response_instructions(self, translation_prompt: str) -> str:
+        """Per-response instructions injected via ResponseProperties.instructions.
 
-            async def playback_completion():
-                while AUDIO.is_playing():
-                    await asyncio.sleep(0.1)  # Poll every 100ms
-                if self.display:
-                    self.display.set_speaking(False)
-                self.response_chunks.clear()
-                logger.info("🔊 Response playback finished")
+        The OpenAI Realtime API adds these to the session-level instructions (set once
+        via session.update at startup) rather than replacing them, so we only need the
+        per-turn response rules here — not the full session context.
+        """
+        return CONFIG["prompts"]["response"].format(
+            **self.instruction_params, translation_prompt=translation_prompt
+        )
 
-            # For greeting + goodbye, await playback completion before continuing
-            if self.is_greeting or self.is_terminating:
-                await playback_completion()
-            else:
-                self._playback_task = asyncio.create_task(playback_completion())
+    def _build_goodbye_instructions(self) -> str:
+        return CONFIG["prompts"]["goodbye"].format(**self.instruction_params)
 
+    # --- Transcript helpers ---
 
-    # --- Transcript Helpers ---
-    def _is_echo(self, transcript):
-        """Return True if a short user transcript looks like mic feedback of the last response."""
-        echo_cfg = self.session_config.get('echo_detection', {})
-        max_words = echo_cfg.get('max_words', 4)
-        threshold = echo_cfg.get('overlap_threshold', 80)
+    def _is_echo(self, transcript: str) -> bool:
+        echo_cfg = self.session_config.get("echo_detection", {})
+        max_words = echo_cfg.get("max_words", 4)
+        threshold = echo_cfg.get("overlap_threshold", 80)
         if not transcript or not self.last_assistant_transcript:
             return False
         if len(transcript.split()) > max_words:
             return False
         return fuzz.partial_ratio(transcript.lower(), self.last_assistant_transcript.lower()) >= threshold
 
-    def _is_sleep_word(self, text, threshold=80):
-        """Check if text contains a sleep word using fuzzy matching"""
-        sleep_word = self.lang_config['sleep_word'].lower()
+    def _is_sleep_word(self, text: str, threshold: int = 80) -> bool:
+        sleep_word = self.lang_config["sleep_word"].lower()
         if not text or not sleep_word:
             return False
-
-        filtered_text = re.sub(r'[,.!?]', '', text.strip().lower())
-        score = fuzz.partial_ratio(sleep_word, filtered_text)
+        filtered = re.sub(r"[,.!?]", "", text.strip().lower())
+        score = fuzz.partial_ratio(sleep_word, filtered)
         if score >= threshold:
-            logger.debug("✅ Sleep word fuzzy matched: '%s' (score: %s)", sleep_word, score)
+            logger.debug("✅ Sleep word matched: '%s' (score: %d)", sleep_word, score)
             return True
         return False
 
-    def _record_transcript(self, role, transcript, log_format, display_role):
+    def _record_transcript(self, role: str, transcript: str, log_format: str, display_role: str):
         logger.info(log_format, transcript)
         if role == "user":
             self.last_user_transcript = transcript
@@ -233,114 +444,38 @@ class ConversationSession:
         if self.display:
             self.display.add_transcript(display_role, transcript)
 
-    # --- Message Handlers ---
-    def _on_response_created(self):
-        self.is_response_pending = True
+    # --- Main loop ---
 
-    def _on_speech_started(self):
-        logger.info("🔊 VAD: user speech started")
-        if self._playback_task and not self._playback_task.done():
-            self._playback_task.cancel()
-        AUDIO.stop_playing()
-        self.response_chunks.clear()
-        if self.display:
-            self.display.set_speaking(False)
+    async def run(self):
+        """Build and run the Pipecat pipeline for this conversation session."""
+        transport = LocalAudioTransport(
+            LocalAudioTransportParams(
+                audio_in_enabled=True,
+                audio_out_enabled=True,
+            )
+        )
 
-    def _on_speech_stopped(self):
-        logger.info("🔊 VAD: user speech ended")
-        AUDIO.start_playing(CONFIG["sounds"]["sent"])
+        chocopi_proc = ChocoPiProcessor(self)
+        pipeline = Pipeline([transport.input(), self._llm_service, chocopi_proc, transport.output()])
+        task = PipelineTask(pipeline)
+        chocopi_proc.set_task(task)
 
-    async def _on_transcription_completed(self, data):
-        transcript = data.get("transcript", "")
-        self._record_transcript("user", transcript, "🗣️  You said: %s", "user")
+        # Greeting: inject greeting instructions, then seed an empty LLMContext.
+        # _handle_context → _create_response(), deferred until API session is ready.
+        # send_client_event intercepts the ResponseCreateEvent to inject instructions.
+        self._set_response_instructions(
+            CONFIG["prompts"]["greeting"].format(**self.instruction_params)
+        )
+        await task.queue_frames([LLMContextFrame(context=LLMContext())])
 
-        # Echo/feedback loop detection
-        echo_cfg = self.session_config.get('echo_detection', {})
-        consecutive_limit = echo_cfg.get('consecutive_limit', 5)
-        if self._is_echo(transcript):
-            self._consecutive_echo_turns += 1
-            logger.debug("🔁 Echo candidate (%d/%d): '%s'", self._consecutive_echo_turns, consecutive_limit, transcript)
-            if self._consecutive_echo_turns >= consecutive_limit:
-                logger.warning("🔁 Echo loop detected after %d consecutive turns, ending session", self._consecutive_echo_turns)
-                self.is_terminating = True
-                await self._create_response(CONFIG["prompts"]["goodbye"].format(**self.instruction_params))
-                return
-        else:
-            self._consecutive_echo_turns = 0
-
-        # Turn and duration limits
-        self.turn_count += 1
-        max_turns = self.session_config.get('max_turns')
-        max_duration = self.session_config.get('max_duration_minutes')
-        elapsed = (time.monotonic() - self.session_start_time) / 60 if self.session_start_time else 0
-        if (max_turns and self.turn_count >= max_turns) or (max_duration and elapsed >= max_duration):
-            logger.warning("⏲️  Session limit reached (turns=%d, elapsed=%.1fm), ending session", self.turn_count, elapsed)
-            self.is_terminating = True
-            await self._create_response(CONFIG["prompts"]["goodbye"].format(**self.instruction_params))
-            return
-
-        response_instructions = self._build_response_instructions(transcript)
-        await self._create_response(response_instructions, transcript)
-
-    def _on_output_audio_delta(self, data):
-        if audio_base64 := data.get("delta", ""):
-            audio_bytes = base64.b64decode(audio_base64)
-            self.response_chunks.append(audio_bytes)
-
-    def _on_output_transcript_done(self, data):
-        transcript = data.get("transcript", "")
-        self._record_transcript("assistant", transcript, "🤖 Choco says: %s", "choco")
-
-    async def _on_response_done(self):
-        self.is_response_pending = False
-        if self.display:
-            self.display.set_speaking(True)
-
-        await self._play_response()
-
-        if self.is_greeting:
-            return self.Result.GREETED
-        if self.is_terminating:
-            AUDIO.stop_recording()
-            return self.Result.GOODBYE
-        return None
-
-    def _on_error(self, data):
-        logger.error("❌ OpenAI API Error: %s", data)
-        self.is_active = False
-        AUDIO.stop_recording()
-        return self.Result.ERROR
-
-    async def _handle_message(self, data):
-        """Handle incoming message from OpenAI"""
-        Result = self.Result
-        event_type = data.get("type")
-
-        # Quieter debug logging
-        if event_type not in {"response.output_audio.delta", "response.output_audio_transcript.delta"}:
-            logger.debug("💬 Received message: %s", event_type)
-
-        match event_type:
-            case "response.created":
-                self._on_response_created()
-            case "input_audio_buffer.speech_started":
-                self._on_speech_started()
-            case "input_audio_buffer.speech_stopped":
-                self._on_speech_stopped()
-            case "conversation.item.input_audio_transcription.completed":
-                await self._on_transcription_completed(data)
-            case "response.output_audio.delta":
-                self._on_output_audio_delta(data)
-            case "response.output_audio_transcript.done":
-                self._on_output_transcript_done(data)
-            case "response.done":
-                return await self._on_response_done()
-            case "error":
-                return self._on_error(data)
-
-        return None
+        try:
+            runner = PipelineRunner(handle_sigint=False)
+            await runner.run(task)
+        except Exception as e:
+            logger.error("⚠️  Error during conversation: %s", e)
 
     # --- Memory ---
+
     async def persist_memory(self):
         """Summarize and persist session memory."""
         memory = self.memory
@@ -367,54 +502,3 @@ class ConversationSession:
             logger.warning("Memory save error: %s", exc)
             return
         self.memory = memory
-
-    # --- Main Loop ---
-    async def run(self):
-        """Run conversation session"""
-        Result = self.Result
-        upload_task = None
-
-        try:
-            await self.connect()
-            while self.is_active:
-                try:
-                    # Short timeout for greeting, normal timeout for conversation
-                    timeout = self.session_config['greeting_timeout'] if self.is_greeting else self.session_config['conversation_timeout']
-                    message = await asyncio.wait_for(self.websocket.recv(), timeout=timeout)
-                    data = json.loads(message)
-                    result = await self._handle_message(data)
-
-                    # Transition to conversation after greeting
-                    if self.is_greeting and result == Result.GREETED:
-                        self.is_greeting = False
-                        self.session_start_time = time.monotonic()
-                        logger.info("👂 Choco is listening...")
-                        self._listen()  # Start recording synchronously
-                        upload_task = asyncio.create_task(self._send_audio())
-                        continue
-
-                    # Handle exit conditions
-                    if result in {Result.GOODBYE, Result.ERROR}:
-                        self.is_active = False
-                        break
-
-                except asyncio.TimeoutError:
-                    if self.is_greeting:
-                        logger.error("⚠️  Timeout waiting for greeting response")
-                    else:
-                        logger.error("⏲️  Session timeout reached (%ss of inactivity)", timeout)
-                    self.is_active = False
-                    break
-
-        except Exception as e:
-            logger.error("⚠️  Error during conversation: %s", e)
-        finally:
-            AUDIO.stop_recording()
-            if upload_task:
-                upload_task.cancel()
-                try:
-                    await upload_task
-                except asyncio.CancelledError:
-                    pass
-            if self.websocket:
-                await self.websocket.close()
