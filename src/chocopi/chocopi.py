@@ -11,6 +11,8 @@ from chocopi.language import warm_language_detector
 
 logger = logging.getLogger(__name__)
 
+_SHUTDOWN_SIGNALS = (signal.SIGINT, signal.SIGTERM)
+
 
 class ChocoPi:
     def __init__(self):
@@ -39,13 +41,25 @@ class ChocoPi:
 
         return default_lang
 
-    def _signal_handler(self, signum, frame):
-        """Handle shutdown signals by raising SystemExit"""
-        logger.info("\n🛑 Received signal %s, shutting down gracefully...", signum)
-        raise SystemExit(0)
-
     async def run(self):
         """Run the main application loop"""
+        loop = asyncio.get_running_loop()
+        main_task = asyncio.current_task()
+        shutting_down = False
+
+        def _request_shutdown(signum):
+            nonlocal shutting_down
+            logger.info("\n🛑 Received signal %s, shutting down gracefully...", signum)
+            shutting_down = True
+            main_task.cancel()
+
+        for sig in _SHUTDOWN_SIGNALS:
+            try:
+                loop.add_signal_handler(sig, lambda s=sig: _request_shutdown(s))
+            except NotImplementedError:
+                # Windows: fall back to signal.signal (best-effort)
+                signal.signal(sig, lambda s, f, signum=sig: _request_shutdown(signum))
+
         logger.info("✨ Choco is ready! Say one of '%s' to start or end a conversation.", ', '.join(self.wake_words))
 
         # Start display task if enabled
@@ -69,6 +83,13 @@ class ChocoPi:
                 session = ConversationSession(lang, self.profile, display=self.display)
                 await session.run()
 
+                # If a shutdown was requested while the session was running, pipecat
+                # may have caught and suppressed the CancelledError internally. Check
+                # the flag explicitly so we don't loop back into wake word detection.
+                if shutting_down:
+                    logger.info("\n👋 Shutting down...")
+                    break
+
                 AUDIO.start_playing(CONFIG['sounds']['bye'])
                 logger.info("✅ Session ended.\n")
 
@@ -78,7 +99,7 @@ class ChocoPi:
 
                 await session.persist_memory()
 
-        except (KeyboardInterrupt, SystemExit):
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
             logger.info("\n👋 Shutting down...")
         except Exception as e:
             logger.error("\n❌ Unexpected error: %s", e)
@@ -101,11 +122,6 @@ class ChocoPi:
 
 def main():
     app = ChocoPi()
-
-    # Set up signal handlers for graceful shutdown
-    signal.signal(signal.SIGTERM, app._signal_handler)
-    signal.signal(signal.SIGINT, app._signal_handler)
-
     asyncio.run(app.run())
 
 if __name__ == '__main__':

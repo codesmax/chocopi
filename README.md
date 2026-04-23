@@ -11,7 +11,7 @@ https://github.com/user-attachments/assets/7e72a294-3c8f-48a5-b8f6-ec7416c1d9a8
 ## How It Works
 
 1. Wake word detection runs on-device using [OpenWakeWord](https://github.com/dscripka/openWakeWord)
-2. Once triggered, a voice conversation starts via the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime)
+2. Once triggered, a live voice conversation starts via a configurable provider (OpenAI Realtime, Gemini Live, or Ultravox)
 3. The assistant adapts to the child's age, native language, and comprehension level
 4. Sessions end with a language-specific sleep word or timeout
 5. Conversation history is summarized and persisted for continuity across sessions
@@ -20,6 +20,7 @@ https://github.com/user-attachments/assets/7e72a294-3c8f-48a5-b8f6-ec7416c1d9a8
 
 - **4 languages** — English, Korean, Spanish, and Chinese
 - **On-device wake words** — "Hey Choco", "Anyeong Choco", "Hola Choco", "Nihao Choco"
+- **Multiple voice providers** — OpenAI Realtime (default), Google Gemini Live, or Ultravox; swap via `config.yml`
 - **User profiles** — per-child age, native language, and learning levels
 - **Session memory** — remembers jokes, vocab, topics, and progress across conversations
 - **Display support** — animated character and live transcript panel (pygame-ce); also works headless!
@@ -29,7 +30,7 @@ https://github.com/user-attachments/assets/7e72a294-3c8f-48a5-b8f6-ec7416c1d9a8
 ### Requirements
 
 - Microphone and speaker (Bluetooth or wired)
-- OpenAI API key with Realtime API access (sessions use the [OpenAI Realtime API](https://platform.openai.com/docs/guides/realtime), which is billed per minute — see [pricing](https://openai.com/api/pricing/))
+- API key for your chosen voice provider (OpenAI by default — see [pricing](https://openai.com/api/pricing/))
 - Python 3.11 (required — `tflite-runtime` has no wheels for 3.12+)
 
 ### Raspberry Pi Setup
@@ -52,6 +53,22 @@ Tested on Raspberry Pi 4+ with 64-bit Raspberry Pi OS Lite (Trixie and Bookworm)
 
    The installer handles system dependencies, audio stack setup, Python environment, and systemd service creation.
 
+### macOS Setup
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/codesmax/chocopi/main/install.sh)
+```
+
+Or clone first and run locally:
+
+```bash
+git clone https://github.com/codesmax/chocopi.git
+cd chocopi
+./install.sh
+```
+
+The script auto-detects macOS or Linux/Pi and runs the appropriate setup.
+
 ### Manual Setup (Linux / macOS / Windows)
 
 ```bash
@@ -61,14 +78,17 @@ cd chocopi
 # Install uv if needed
 pipx install uv
 
+# macOS: also install portaudio
+brew install portaudio
+
 # Create venv with Python 3.11 and install
 uv venv .venv --python 3.11
 source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 uv pip install -e .
 
 # Configure
-cp .env.example .env       # add your OPENAI_API_KEY
-vi config.yml              # set active_profile, languages, etc.
+cp .env.example .env       # add your API key
+vi config.yml              # set active_profile, active_provider, languages, etc.
 
 # Run
 ./chocopi
@@ -82,8 +102,20 @@ All settings live in two files:
 
 | File | Contents |
 |---|---|
-| `.env` | `OPENAI_API_KEY` |
-| `config.yml` | Profiles, languages, wake/sleep words, prompts, audio settings, display settings, OpenAI model config |
+| `.env` | API key(s) — `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ULTRAVOX_API_KEY` |
+| `config.yml` | Profiles, languages, `active_provider`, wake/sleep words, prompts, audio settings, display settings |
+
+### Voice Provider
+
+Set `active_provider` in `config.yml` to switch between backends:
+
+| Provider | `active_provider` value | Required dep |
+|---|---|---|
+| OpenAI Realtime | `openai_realtime` | `pipecat-ai[openai]` (default) |
+| Google Gemini Live | `gemini_live` | `pipecat-ai[google]` |
+| Ultravox | `ultravox` | `pipecat-ai[ultravox]` |
+
+Each provider has its own section in `config.yml` for API key, model, voice, and turn-detection settings.
 
 ### Profiles
 
@@ -142,9 +174,10 @@ sudo journalctl -u chocopi -f      # service logs on Pi
 ```
 chocopi                     # Bash entry point
 src/chocopi/                # Python package
-  chocopi.py                #   Main orchestrator
+  chocopi.py                #   Main orchestrator + signal handling
   wakeword.py               #   Wake word detection
-  conversation.py           #   OpenAI Realtime API session
+  conversation.py           #   Pipecat pipeline + ChocoPiProcessor
+  providers.py              #   LLM service factories (OpenAI, Gemini, Ultravox)
   audio.py                  #   Audio I/O
   display.py                #   Optional pygame-ce UI
   memory.py                 #   Session memory persistence
@@ -153,7 +186,9 @@ src/chocopi/                # Python package
 config.yml                  # Runtime configuration
 models/                     # Wake word models (.tflite + .onnx)
 assets/                     # Sounds, images, fonts
-install/                    # Systemd service + WirePlumber configs
+install/                    # Service configs (installers live at repo root)
+  systemd/                  #   Systemd service (Pi)
+  wireplumber/              #   WirePlumber Bluetooth configs
 data/                       # Per-profile memory files (gitignored)
 ```
 
@@ -167,7 +202,6 @@ data/                       # Per-profile memory files (gitignored)
 
 ## Roadmap
 
-- [ ] LiveKit + Ultravox integration with open weight model support
 - [ ] Support tool calling for image display in instruction
 - [ ] Expanded language + wake word support
 

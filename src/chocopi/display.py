@@ -1,6 +1,5 @@
 import asyncio
 import os
-import platform
 import time
 import logging
 import pygame
@@ -40,7 +39,7 @@ class DisplayManager:
         self.ping_pong_frames = [0, 1, 2, 3, 2, 1]  # Ping-pong pattern
         self.last_frame_time = 0
 
-        # Pygame surfaces (initialized in thread)
+        # Pygame surfaces (initialized in run loop)
         self.screen = None
         self.idle_sprite = None
         self.speaking_frames = []
@@ -61,12 +60,19 @@ class DisplayManager:
                 logger.error("⚠️  No display driver available, disabling visual output")
                 return False
 
+            # Set window icon before creating the display surface
+            icon_path = IMAGES_PATH / 'chocopi-icon.png'
+            if icon_path.exists():
+                pygame.display.set_icon(pygame.image.load(str(icon_path)))
+
+            # On Pi: true fullscreen. On desktop: resizable window
+            flags = pygame.FULLSCREEN if IS_PI else pygame.RESIZABLE
             self.screen = pygame.display.set_mode(
                 (self.screen_width, self.screen_height),
-                pygame.FULLSCREEN if IS_PI else pygame.RESIZABLE
+                flags,
             )
-            pygame.display.set_caption("Choco")
-            pygame.mouse.set_visible(False)
+            pygame.display.set_caption("ChocoPi")
+            pygame.mouse.set_visible(not IS_PI)
 
             self._load_sprites()
             self.font = self._load_font()

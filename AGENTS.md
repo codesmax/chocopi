@@ -50,7 +50,8 @@ Python 3.11 is required because `tflite-runtime` (subdependency of `openwakeword
 | `src/chocopi/__main__.py` | Module entry point — imports and calls `main()` |
 | `src/chocopi/chocopi.py` | Top-level orchestrator and graceful shutdown |
 | `src/chocopi/wakeword.py` | OpenWakeWord model loading and inference loop |
-| `src/chocopi/conversation.py` | Realtime websocket lifecycle, event handling, audio upload/download |
+| `src/chocopi/conversation.py` | Pipecat pipeline setup, `ChocoPiProcessor`, `ConversationSession` |
+| `src/chocopi/providers.py` | Pipecat LLM service factories (OpenAI Realtime, Gemini Live, Ultravox) |
 | `src/chocopi/audio.py` | Shared input/output audio manager (wakeword + conversation) |
 | `src/chocopi/display.py` | Pygame-ce UI (sprites + transcript pane), enabled by `CHOCO_DISPLAY=1` |
 | `src/chocopi/memory.py` | Session summary (via gpt-4.1-nano), memory merge, YAML persistence |
@@ -70,7 +71,12 @@ Python 3.11 is required because `tflite-runtime` (subdependency of `openwakeword
 ## Architecture
 
 - **Wake Word Detection**: OpenWakeWord with platform-specific model loading (TFLite on ARM, ONNX elsewhere)
-- **Conversation**: OpenAI Realtime API over WebSocket (`websockets` library) with bidirectional audio streaming
+- **Conversation**: Pipecat pipeline — `LocalAudioTransport.input() → LLM service → ChocoPiProcessor → LocalAudioTransport.output()`. Provider is selected by `active_provider` in `config.yml`.
+- **Providers** (`providers.py`): factory returns `(service, set_response_instructions_fn)` for each backend:
+  - `openai_realtime` — per-response instructions injected via `response.create.instructions`
+  - `gemini_live` — system instruction set once at session start; dynamic per-turn rules go in `session_instructions`
+  - `ultravox` — same limitation as Gemini; no per-response override channel via Pipecat's current service layer
+- **Signal handling**: `loop.add_signal_handler()` inside `ChocoPi.run()` cancels the main task on SIGINT/SIGTERM, allowing asyncio and Pipecat to unwind cleanly (single Ctrl-C exits)
 - **Audio**:
   - Recording: `sounddevice` → PortAudio → ALSA → PipeWire (Linux) or CoreAudio (macOS)
   - Playback: `simpleaudio` (can run simultaneously with recording)
@@ -102,8 +108,8 @@ Python 3.11 is required because `tflite-runtime` (subdependency of `openwakeword
 
 | File | Purpose |
 |---|---|
-| `install.sh` | Automated Pi installer (system deps, user setup, venv, service) |
-| `install/systemd/chocopi.service` | Systemd service definition |
+| `install.sh` | Cross-platform installer — detects macOS/Linux and runs the appropriate setup |
+| `install/systemd/chocopi.service` | Systemd service definition (Pi) |
 | `install/wireplumber/51-bluetooth-audio.lua` | WirePlumber Bluetooth HSP/HFP profile config |
 | `install/wireplumber/51-bluetooth-audio.conf` | WirePlumber logind integration config |
 
@@ -146,6 +152,7 @@ Managed via `pyproject.toml` (no `requirements.txt`). Key packages:
 ## Change Guidelines
 
 - Preserve the event contract in `conversation.py` when updating Realtime handling.
+- Provider-specific logic belongs in `providers.py`, not in `conversation.py`.
 - Keep audio side effects explicit; avoid introducing competing streams.
 - Maintain compatibility between `config.yml` structure and code lookups before renaming keys.
 - Do not commit `.env` or profile memory files from `data/`.
