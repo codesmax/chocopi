@@ -24,7 +24,7 @@ from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransp
 from rapidfuzz import fuzz
 
 from chocopi.audio import AUDIO
-from chocopi.config import CONFIG
+from chocopi.config import CONFIG, PROVIDER
 from chocopi.language import detect_language_code
 from chocopi.memory import (
     build_memory_block,
@@ -177,8 +177,7 @@ class ConversationSession:
         if profile is None:
             raise ValueError("ConversationSession requires a profile configuration")
 
-        provider_name = CONFIG["provider"]
-        provider_config = CONFIG["providers"][provider_name]
+        provider_config = CONFIG["providers"][PROVIDER]
 
         self.session_config = CONFIG["session"]
         self.profile = profile
@@ -219,7 +218,7 @@ class ConversationSession:
         self._default_response_instructions = self._build_response_instructions("")
 
         self._llm_service, self._set_response_instructions = create_llm_service(
-            provider_name, provider_config, self._session_instructions, transcription_instructions
+            PROVIDER, provider_config, self._session_instructions, transcription_instructions
         )
 
     # --- Instruction builders ---

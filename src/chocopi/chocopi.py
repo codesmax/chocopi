@@ -2,7 +2,7 @@
 import asyncio
 import signal
 import logging
-from chocopi.config import CONFIG
+from chocopi.config import CONFIG, PROFILE
 from chocopi.audio import AUDIO
 from chocopi.wakeword import WakeWordDetector
 from chocopi.conversation import ConversationSession
@@ -16,7 +16,7 @@ _SHUTDOWN_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
 class ChocoPi:
     def __init__(self):
-        self.profile = CONFIG["profiles"][CONFIG["profile"]]
+        self.profile = CONFIG["profiles"][PROFILE]
         self.wake_word_detector = WakeWordDetector()
         profile_langs = set(self.profile["learning_languages"].keys())
         profile_langs.add(self.profile["native_language"])

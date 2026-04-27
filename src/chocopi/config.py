@@ -37,7 +37,7 @@ load_dotenv(PROJECT_ROOT / '.env')
 IS_PI = platform.machine().lower() in ['aarch64', 'armv7l']
 LOG_LEVEL = os.getenv('CHOCO_LOG', 'INFO').upper()
 USE_DISPLAY = os.getenv('CHOCO_DISPLAY', '0') == '1' and _has_display()
-PROFILE= os.getenv('CHOCO_PROFILE', CONFIG.get('profile', 'default'))
+PROFILE = os.getenv('CHOCO_PROFILE', CONFIG.get('profile', 'default'))
 PROVIDER = os.getenv('CHOCO_PROVIDER', CONFIG.get('provider', 'openai_realtime'))
 
 # Configure logging
