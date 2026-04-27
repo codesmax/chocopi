@@ -63,7 +63,7 @@ Python 3.11 is required because `tflite-runtime` (subdependency of `openwakeword
 
 - **Secrets:** `OPENAI_API_KEY` in `.env`, loaded by `python-dotenv`.
 - **Runtime config:** `config.yml` — read at import time by `config.py`.
-- **Active profile:** `active_profile` key in `config.yml`.
+- **Active profile:** `profile` key in `config.yml`.
 - **Wake-word models:** each `languages.<code>.model` must match files in `models/` (`.tflite` on ARM, `.onnx` elsewhere).
 - **Realtime model and request schemas:** `openai` section in `config.yml`.
 - **Session memory:** stored under `data/memory_<profile>.yml`.
@@ -71,7 +71,7 @@ Python 3.11 is required because `tflite-runtime` (subdependency of `openwakeword
 ## Architecture
 
 - **Wake Word Detection**: OpenWakeWord with platform-specific model loading (TFLite on ARM, ONNX elsewhere)
-- **Conversation**: Pipecat pipeline — `LocalAudioTransport.input() → LLM service → ChocoPiProcessor → LocalAudioTransport.output()`. Provider is selected by `active_provider` in `config.yml`.
+- **Conversation**: Pipecat pipeline — `LocalAudioTransport.input() → LLM service → ChocoPiProcessor → LocalAudioTransport.output()`. Provider is selected by `provider` in `config.yml`.
 - **Providers** (`providers.py`): factory returns `(service, set_response_instructions_fn)` for each backend:
   - `openai_realtime` — per-response instructions injected via `response.create.instructions`
   - `gemini_live` — system instruction set once at session start; dynamic per-turn rules go in `session_instructions`

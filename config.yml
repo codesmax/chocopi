@@ -1,6 +1,5 @@
 # Active profile to use for sessions
-active_profile: "default"
-
+profile: "default"
 profiles:
   default:
     name: "Default"
@@ -13,6 +12,31 @@ profiles:
         comprehension_age: 2
       zh:
         comprehension_age: 2
+
+# Active voice provider for conversation sessions
+provider: openai_realtime
+providers:
+  openai_realtime:
+    api_key_env: OPENAI_API_KEY
+    model: "gpt-realtime-mini-2025-12-15"
+    voice: "marin"
+    transcription_model: "gpt-4o-mini-transcribe"
+    noise_reduction: "far_field"   # "near_field" | "far_field" | null
+    output_speed: 0.75
+    turn_detection:
+      threshold: 0.3
+      prefix_padding_ms: 300
+      silence_duration_ms: 800
+
+  gemini_live:
+    api_key_env: GOOGLE_API_KEY
+    model: "gemini-3.1-flash-live-preview"
+    voice: "Zephyr"
+
+  ultravox:
+    api_key_env: ULTRAVOX_API_KEY
+    model: "ultravox-v0.7"
+    voice: "ee93bbf5-b47d-4f0d-bc03-f7235ddd8ab1" # Pixie (UUID required)
 
 # Supported learning languages
 languages:
@@ -36,35 +60,6 @@ languages:
     model: "hey-choco"
     wake_word: "hey choco"
     sleep_word: "bye choco"
-
-# Active voice provider for conversation sessions
-active_provider: openai_realtime
-
-providers:
-  openai_realtime:
-    api_key_env: OPENAI_API_KEY
-    model: "gpt-realtime-mini-2025-12-15"
-    voice: "marin"
-    transcription_model: "gpt-4o-mini-transcribe"
-    noise_reduction: "far_field"   # "near_field" | "far_field" | null
-    output_speed: 0.75
-    turn_detection:
-      threshold: 0.3
-      prefix_padding_ms: 300
-      silence_duration_ms: 800
-
-  gemini_live:
-    # Requires: pip install 'pipecat-ai[google]'
-    api_key_env: GOOGLE_API_KEY
-    model: "gemini-2.0-flash-live"
-    voice: "Aoede"
-
-  ultravox:
-    # Requires: pip install 'pipecat-ai[ultravox]'
-    # Note: per-turn instruction overrides are injected as developer-role messages
-    api_key_env: ULTRAVOX_API_KEY
-    model: "fixie-ai/ultravox-70B"
-    voice: "Mark"
 
 session:
   greeting_timeout: 5
@@ -150,7 +145,7 @@ openwakeword:
   chunk_duration_ms: 80  # multiples of 80ms recommended
   input_gain: 1.0  # Audio input gain multiplier (1.0 = no change, 2.0 = double)
 
-# Text LLM used for session summarization — independent of active_provider
+# Text LLM used for session summarization — independent of provider
 summary_model:
   model: "gpt-4.1-nano"
   text:

@@ -177,7 +177,7 @@ class ConversationSession:
         if profile is None:
             raise ValueError("ConversationSession requires a profile configuration")
 
-        provider_name = CONFIG["active_provider"]
+        provider_name = CONFIG["provider"]
         provider_config = CONFIG["providers"][provider_name]
 
         self.session_config = CONFIG["session"]

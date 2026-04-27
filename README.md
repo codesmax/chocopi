@@ -88,7 +88,7 @@ uv pip install -e .
 
 # Configure
 cp .env.example .env       # add your API key
-vi config.yml              # set active_profile, active_provider, languages, etc.
+vi config.yml              # set profile, provider, languages, etc.
 
 # Run
 ./chocopi
@@ -103,13 +103,13 @@ All settings live in two files:
 | File | Contents |
 |---|---|
 | `.env` | API key(s) — `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `ULTRAVOX_API_KEY` |
-| `config.yml` | Profiles, languages, `active_provider`, wake/sleep words, prompts, audio settings, display settings |
+| `config.yml` | Profiles, languages, `provider`, wake/sleep words, prompts, audio settings, display settings |
 
 ### Voice Provider
 
-Set `active_provider` in `config.yml` to switch between backends:
+Set `provider` in `config.yml` to switch between backends:
 
-| Provider | `active_provider` value | Required dep |
+| Provider | `provider` value | Required dep |
 |---|---|---|
 | OpenAI Realtime | `openai_realtime` | `pipecat-ai[openai]` (default) |
 | Google Gemini Live | `gemini_live` | `pipecat-ai[google]` |
@@ -119,7 +119,7 @@ Each provider has its own section in `config.yml` for API key, model, voice, and
 
 ### Profiles
 
-Profiles let multiple users share one device. Each profile specifies age, native language, and learning languages with comprehension levels. Set `active_profile` in `config.yml` to switch.
+Profiles let multiple users share one device. Each profile specifies age, native language, and learning languages with comprehension levels. Set `profile` in `config.yml` to switch.
 
 ### Bluetooth Audio
 

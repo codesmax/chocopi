@@ -16,7 +16,7 @@ _SHUTDOWN_SIGNALS = (signal.SIGINT, signal.SIGTERM)
 
 class ChocoPi:
     def __init__(self):
-        self.profile = CONFIG["profiles"][CONFIG["active_profile"]]
+        self.profile = CONFIG["profiles"][CONFIG["profile"]]
         self.wake_word_detector = WakeWordDetector()
         profile_langs = set(self.profile["learning_languages"].keys())
         profile_langs.add(self.profile["native_language"])

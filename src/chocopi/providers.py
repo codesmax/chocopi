@@ -158,14 +158,37 @@ def _gemini_live(config, session_instructions):
     no per-response override channel equivalent to OpenAI's response.create.instructions.
     Dynamic per-turn rules (e.g. translation) should be expressed as standing conditional
     instructions in session_instructions so the model applies them on its own judgment.
+
+    Audio gate: mic audio is suppressed while the bot is speaking to prevent hardware echo
+    from triggering Gemini's server-side VAD. The base class ignores BotStartedSpeakingFrame
+    / BotStoppedSpeakingFrame (it tracks speaking state via server events), so we intercept
+    them here to gate _send_user_audio without interfering with the base class's own state.
     """
-    from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame
+    from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService as _GeminiBase
+
+    class GeminiLiveLLMService(_GeminiBase):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self._gate_audio = False
+
+        async def process_frame(self, frame, direction):
+            if isinstance(frame, BotStartedSpeakingFrame):
+                self._gate_audio = True
+            elif isinstance(frame, BotStoppedSpeakingFrame):
+                self._gate_audio = False
+            await super().process_frame(frame, direction)
+
+        async def _send_user_audio(self, frame):
+            if self._gate_audio:
+                return
+            await super()._send_user_audio(frame)
 
     service = GeminiLiveLLMService(
         api_key=os.getenv(config["api_key_env"]),
-        model=config.get("model", "gemini-2.0-flash-live"),
+        model=config.get("model", "gemini-3.1-flash-live-preview"),
         settings=GeminiLiveLLMService.Settings(
-            voice=config.get("voice", "Aoede"),
+            voice=config.get("voice", "Zephyr"),
             system_instruction=session_instructions,
         ),
     )
@@ -184,15 +207,25 @@ def _ultravox(config, session_instructions):
     layer. Ultravox's call-stages API can update the system prompt mid-call, but that
     is not yet exposed by UltravoxRealtimeLLMService. Dynamic per-turn rules should be
     expressed as standing conditional instructions in session_instructions.
+
+    Pipecat bug workaround: UltravoxRealtimeLLMService.__init__ only sets _selected_tools
+    when one_shot_selected_tools is passed, but _start_one_shot_call unconditionally
+    evaluates `if self._selected_tools`, raising AttributeError before any API call.
     """
-    from pipecat.services.ultravox.llm import OneShotInputParams, UltravoxRealtimeLLMService
+    from pipecat.services.ultravox.llm import OneShotInputParams, UltravoxRealtimeLLMService as _UltravoxBase
+
+    class UltravoxRealtimeLLMService(_UltravoxBase):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            if not hasattr(self, "_selected_tools"):
+                self._selected_tools = None
 
     service = UltravoxRealtimeLLMService(
         params=OneShotInputParams(
             api_key=os.getenv(config["api_key_env"]),
             system_prompt=session_instructions,
-            voice=config.get("voice", "Mark"),
-            model=config.get("model", "fixie-ai/ultravox-70B"),
+            voice=config.get("voice", "ee93bbf5-b47d-4f0d-bc03-f7235ddd8ab1"),
+            model=config.get("model", "ultravox-v0.7"),
         )
     )
 
