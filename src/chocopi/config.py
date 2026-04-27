@@ -30,6 +30,15 @@ SOUNDS_PATH = ASSETS_PATH / 'sounds'
 IMAGES_PATH = ASSETS_PATH / 'images'
 FONTS_PATH = ASSETS_PATH / 'fonts'
 
+# Load configuration
+try:
+    with open(PROJECT_ROOT / 'config.yml', 'r', encoding='utf-8') as file:
+        CONFIG = yaml.safe_load(file)
+except FileNotFoundError:
+    raise SystemExit("config.yml not found. Make sure you're running from the project root.")
+except yaml.YAMLError as e:
+    raise SystemExit(f"config.yml is invalid: {e}")
+
 # Load environment variables
 load_dotenv(PROJECT_ROOT / '.env')
 
@@ -43,12 +52,3 @@ PROVIDER = os.getenv('CHOCO_PROVIDER', CONFIG.get('provider', 'openai_realtime')
 # Configure logging
 logging.basicConfig(format='[%(levelname)s:%(name)s] %(message)s', level=logging.WARNING)  # Silence third-party libraries
 logging.getLogger('chocopi').setLevel(getattr(logging, LOG_LEVEL))
-
-# Load configuration
-try:
-    with open(PROJECT_ROOT / 'config.yml', 'r', encoding='utf-8') as file:
-        CONFIG = yaml.safe_load(file)
-except FileNotFoundError:
-    raise SystemExit("config.yml not found. Make sure you're running from the project root.")
-except yaml.YAMLError as e:
-    raise SystemExit(f"config.yml is invalid: {e}")
