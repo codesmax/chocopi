@@ -5,7 +5,7 @@ import os
 logger = logging.getLogger(__name__)
 
 
-def create_llm_service(provider_name, provider_config, session_instructions, transcription_instructions=""):
+def create_llm_service(provider_name, provider_config, session_instructions, transcription_instructions="", greeting_instructions=""):
     """
     Instantiate the Pipecat LLM service for the given provider.
 
@@ -15,7 +15,7 @@ def create_llm_service(provider_name, provider_config, session_instructions, tra
     if provider_name == "openai_realtime":
         return _openai_realtime(provider_config, session_instructions, transcription_instructions)
     elif provider_name == "gemini_live":
-        return _gemini_live(provider_config, session_instructions)
+        return _gemini_live(provider_config, session_instructions, greeting_instructions)
     elif provider_name == "ultravox":
         return _ultravox(provider_config, session_instructions)
     else:
@@ -149,7 +149,7 @@ def _openai_realtime(config, session_instructions, transcription_instructions):
     return service, set_response_instructions
 
 
-def _gemini_live(config, session_instructions):
+def _gemini_live(config, session_instructions, greeting_instructions=""):
     """
     Google Gemini Live API via Pipecat (pipecat-ai[google]).
 
@@ -159,19 +159,39 @@ def _gemini_live(config, session_instructions):
     Dynamic per-turn rules (e.g. translation) should be expressed as standing conditional
     instructions in session_instructions so the model applies them on its own judgment.
 
+    Greeting: prepended to system_instruction as an "# Opening" block. Triggered via
+    _create_initial_response override that sends a blank realtime text input (" ") to
+    Gemini 3.x instead of the base class's system-instruction-in-turns seeding, which
+    starts a response (LLMFullResponseStartFrame) but produces no audio for these models.
+
+    TranscriptionFrame: pushed DOWNSTREAM in addition to the base class's UPSTREAM push
+    so ChocoPiProcessor can observe user transcripts.
+
     Audio gate: mic audio is suppressed while the bot is speaking to prevent hardware echo
     from triggering Gemini's server-side VAD. The base class ignores BotStartedSpeakingFrame
     / BotStoppedSpeakingFrame (it tracks speaking state via server events), so we intercept
     them here to gate _send_user_audio without interfering with the base class's own state.
     """
-    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame
+    from pipecat.frames.frames import BotStartedSpeakingFrame, BotStoppedSpeakingFrame, TranscriptionFrame
+    from pipecat.processors.frame_processor import FrameDirection
     from pipecat.services.google.gemini_live.llm import GeminiLiveLLMService as _GeminiBase
+    from pipecat.utils.time import time_now_iso8601
+
+    # Greeting is a one-time opening instruction, so prepend it clearly to the system
+    # instruction rather than injecting it as a per-response instruction (not available).
+    if greeting_instructions:
+        full_system_instruction = f"# Opening\n{greeting_instructions}\n\n{session_instructions}"
+    else:
+        full_system_instruction = session_instructions
+
+    _greeting = bool(greeting_instructions)
 
     class GeminiLiveLLMService(_GeminiBase):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self._gate_audio = False
 
+        # Audio gate: suppress mic input while bot is speaking to prevent echo VAD triggers
         async def process_frame(self, frame, direction):
             if isinstance(frame, BotStartedSpeakingFrame):
                 self._gate_audio = True
@@ -184,12 +204,38 @@ def _gemini_live(config, session_instructions):
                 return
             await super()._send_user_audio(frame)
 
+        # TranscriptionFrame: also push downstream for ChocoPiProcessor
+        async def _push_user_transcription(self, text, result=None):
+            await super()._push_user_transcription(text, result)
+            await self.push_frame(
+                TranscriptionFrame(text=text, user_id="", timestamp=time_now_iso8601()),
+                FrameDirection.DOWNSTREAM,
+            )
+
+        # Greeting trigger: base class seeds context with "system" role turns which the
+        # Gemini adapter cannot convert to valid content, producing a response that starts
+        # (LLMFullResponseStartFrame) but generates no audio. Instead, send a blank
+        # realtime text input as the trigger so Gemini responds based on the system
+        # instruction (which now includes the greeting directive).
+        async def _create_initial_response(self):
+            if not _greeting:
+                await super()._create_initial_response()
+                return
+            if not self._session:
+                self._run_llm_when_session_ready = True
+                return
+            try:
+                await self._session.send_realtime_input(text=" ")
+            except Exception as e:
+                await self._handle_send_error(e)
+            self._ready_for_realtime_input = True
+
     service = GeminiLiveLLMService(
         api_key=os.getenv(config["api_key_env"]),
         model=config.get("model", "gemini-3.1-flash-live-preview"),
         settings=GeminiLiveLLMService.Settings(
             voice=config.get("voice", "Zephyr"),
-            system_instruction=session_instructions,
+            system_instruction=full_system_instruction,
         ),
     )
 
@@ -211,14 +257,27 @@ def _ultravox(config, session_instructions):
     Pipecat bug workaround: UltravoxRealtimeLLMService.__init__ only sets _selected_tools
     when one_shot_selected_tools is passed, but _start_one_shot_call unconditionally
     evaluates `if self._selected_tools`, raising AttributeError before any API call.
+
+    TranscriptionFrame: pushed DOWNSTREAM in addition to the base class's UPSTREAM push
+    so ChocoPiProcessor can observe user transcripts.
     """
+    from pipecat.frames.frames import TranscriptionFrame
+    from pipecat.processors.frame_processor import FrameDirection
     from pipecat.services.ultravox.llm import OneShotInputParams, UltravoxRealtimeLLMService as _UltravoxBase
+    from pipecat.utils.time import time_now_iso8601
 
     class UltravoxRealtimeLLMService(_UltravoxBase):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             if not hasattr(self, "_selected_tools"):
                 self._selected_tools = None
+
+        async def _handle_user_transcript(self, text):
+            await super()._handle_user_transcript(text)
+            await self.push_frame(
+                TranscriptionFrame(user_id="", timestamp=time_now_iso8601(), result=text, text=text),
+                FrameDirection.DOWNSTREAM,
+            )
 
     service = UltravoxRealtimeLLMService(
         params=OneShotInputParams(

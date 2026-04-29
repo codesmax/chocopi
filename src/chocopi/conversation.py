@@ -14,6 +14,7 @@ from pipecat.frames.frames import (
     LLMTextFrame,
     TranscriptionFrame,
     UserStoppedSpeakingFrame,
+    InputAudioRawFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.pipeline.pipeline import Pipeline
@@ -47,8 +48,8 @@ class ChocoPiProcessor(FrameProcessor):
     Handles ChocoPi-specific logic as a Pipecat pipeline processor.
 
     Response flow:
-    - UserStoppedSpeakingFrame  → play alert sound (response deferred until transcript arrives)
-    - TranscriptionFrame        → log, detect echo/sleep, detect language, trigger _respond()
+    - UserStoppedSpeakingFrame  → logged (alert sound moved to _on_transcript for all-provider consistency)
+    - TranscriptionFrame        → play alert sound, log, detect echo/sleep, detect language, trigger _respond()
     - LLMFullResponseEndFrame   → log assistant transcript; handle termination sequence
     - BotStoppedSpeakingFrame   → stop display animation (travels UPSTREAM, not filtered by direction)
     """
@@ -67,6 +68,9 @@ class ChocoPiProcessor(FrameProcessor):
     async def process_frame(self, frame, direction):
         await super().process_frame(frame, direction)
 
+        if not isinstance(frame, InputAudioRawFrame):
+            logger.debug("🔄 Processing frame: %s (direction: %s)", type(frame).__name__, direction)
+
         # BotStoppedSpeakingFrame travels UPSTREAM from output transport — handle
         # it outside the DOWNSTREAM guard so animation stops when audio finishes.
         if isinstance(frame, BotStoppedSpeakingFrame):
@@ -76,8 +80,7 @@ class ChocoPiProcessor(FrameProcessor):
             match frame:
                 case UserStoppedSpeakingFrame():
                     logger.debug("👂 Detected user stopped speaking")
-                    AUDIO.start_playing(CONFIG["sounds"]["sent"])
-                    # _respond() is called in _on_transcript after language detection
+                    # alert sound plays in _on_transcript once transcript arrives
 
                 case LLMFullResponseStartFrame():
                     # Don't stop alert sound here — LLMFullResponseStartFrame fires
@@ -111,6 +114,8 @@ class ChocoPiProcessor(FrameProcessor):
 
         if s.is_greeting:
             return
+
+        AUDIO.start_playing(CONFIG["sounds"]["sent"])
 
         # Echo detection
         echo_cfg = s.session_config.get("echo_detection", {})
@@ -217,8 +222,10 @@ class ConversationSession:
         # Default response instructions (no translation)
         self._default_response_instructions = self._build_response_instructions("")
 
+        self._greeting_instructions = CONFIG["prompts"]["greeting"].format(**self.instruction_params)
         self._llm_service, self._set_response_instructions = create_llm_service(
-            PROVIDER, provider_config, self._session_instructions, transcription_instructions
+            PROVIDER, provider_config, self._session_instructions, transcription_instructions,
+            greeting_instructions=self._greeting_instructions,
         )
 
     # --- Instruction builders ---
@@ -287,12 +294,11 @@ class ConversationSession:
         task = PipelineTask(pipeline)
         chocopi_proc.set_task(task)
 
-        # Greeting: inject greeting instructions, then seed an empty LLMContext.
-        # _handle_context → _create_response(), deferred until API session is ready.
-        # send_client_event intercepts the ResponseCreateEvent to inject instructions.
-        self._set_response_instructions(
-            CONFIG["prompts"]["greeting"].format(**self.instruction_params)
-        )
+        # Greeting: seed an empty LLMContext to trigger _handle_context → _create_initial_response.
+        # For OpenAI: set_response_instructions injects the greeting into the next response.create.
+        # For Gemini/Ultravox: greeting_instructions are baked into the system instruction at
+        # factory time; _create_initial_response override handles the trigger directly.
+        self._set_response_instructions(self._greeting_instructions)
         await task.queue_frames([LLMContextFrame(context=LLMContext())])
 
         try:
